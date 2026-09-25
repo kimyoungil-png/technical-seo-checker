@@ -5,6 +5,7 @@ import tarfile
 from pathlib import Path
 
 SITEONE_VERSION = "2.5.1"
+
 SITEONE_DIR = Path("/tmp/siteone")
 SITEONE_BIN = SITEONE_DIR / "siteone-crawler"
 
@@ -16,29 +17,40 @@ DOWNLOAD_URL = (
 
 
 def ensure_siteone():
-    if SITEONE_BIN.exists():
-        return str(SITEONE_BIN)
-
     SITEONE_DIR.mkdir(parents=True, exist_ok=True)
+
+    if SITEONE_BIN.exists():
+        SITEONE_BIN.chmod(0o755)
+        return str(SITEONE_BIN)
 
     archive_path = "/tmp/siteone.tar.gz"
 
-    urllib.request.urlretrieve(DOWNLOAD_URL, archive_path)
+    urllib.request.urlretrieve(
+        DOWNLOAD_URL,
+        archive_path,
+    )
 
     with tarfile.open(archive_path, "r:gz") as tar:
         tar.extractall(SITEONE_DIR)
 
-    found = list(SITEONE_DIR.rglob("siteone-crawler"))
+    found = list(
+        SITEONE_DIR.rglob("siteone-crawler")
+    )
 
     if not found:
-        raise RuntimeError("SiteOne Crawler binary not found")
+        raise RuntimeError(
+            "SiteOne Crawler binary not found"
+        )
 
-binary = found[0]
+    binary = found[0]
 
-if binary != SITEONE_BIN:
-    os.replace(binary, SITEONE_BIN)
+    if binary != SITEONE_BIN:
+        os.replace(
+            binary,
+            SITEONE_BIN,
+        )
 
-SITEONE_BIN.chmod(0o755)
+    SITEONE_BIN.chmod(0o755)
 
     return str(SITEONE_BIN)
 
@@ -66,7 +78,12 @@ def run_siteone(url: str):
     text_output = ""
 
     if os.path.exists(output_file):
-        with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
+        with open(
+            output_file,
+            "r",
+            encoding="utf-8",
+            errors="ignore",
+        ) as f:
             text_output = f.read()
 
     return {
