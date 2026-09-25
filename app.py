@@ -19,7 +19,7 @@ st.write(
 
 url = st.text_input(
     "チェックするURL",
-    placeholder="https://www.samsung.com/jp/..."
+    placeholder="https://ascentnet.co.jp/..."
 )
 
 if st.button("SEOチェック開始", type="primary"):
