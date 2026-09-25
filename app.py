@@ -172,7 +172,7 @@ if st.button("SEOチェック開始", type="primary"):
 
         st.divider()
 
-        if unlighthouse_result["returncode"] == 0:
+if unlighthouse_result["returncode"] == 0:
     st.success("Technical SEOチェックが正常に終了しました。")
 else:
     st.warning(
