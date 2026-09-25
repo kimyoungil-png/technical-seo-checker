@@ -172,6 +172,10 @@ if st.button("SEOチェック開始", type="primary"):
 
         st.divider()
 
-        st.success(
-            "Technical SEOチェックが終了しました。"
-        )
+        if unlighthouse_result["returncode"] == 0:
+    st.success("Technical SEOチェックが正常に終了しました。")
+else:
+    st.warning(
+        "SiteOne Crawlerは完了しましたが、"
+        "Unlighthouseのチェックは完了していません。"
+    )
