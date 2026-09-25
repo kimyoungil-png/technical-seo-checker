@@ -50,10 +50,12 @@ def run_unlighthouse(url: str):
     env["CHROME_PATH"] = "/usr/bin/chromium"
 
     cmd = [
-        str(NPX_BIN),
-        "--yes",
-        "unlighthouse@0.18.1",
-        "ci",
+    str(NPX_BIN),
+    "--yes",
+    "unlighthouse@0.18.1",
+    "ci",
+    "--config-file",
+    "unlighthouse.config.mjs",
         "--site",
         base,
         "--urls",
