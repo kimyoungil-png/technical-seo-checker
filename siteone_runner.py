@@ -33,11 +33,12 @@ def ensure_siteone():
     if not found:
         raise RuntimeError("SiteOne Crawler binary not found")
 
-    binary = found[0]
-    binary.chmod(0o755)
+binary = found[0]
 
-    if binary != SITEONE_BIN:
-        os.replace(binary, SITEONE_BIN)
+if binary != SITEONE_BIN:
+    os.replace(binary, SITEONE_BIN)
+
+SITEONE_BIN.chmod(0o755)
 
     return str(SITEONE_BIN)
 
