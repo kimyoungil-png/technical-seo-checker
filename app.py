@@ -6,7 +6,10 @@ st.set_page_config(
     layout="wide",
 )
 
+st.image("ASCENTSEOLOGO.png", width=320)
+
 st.title("Technical SEO Checker")
+st.caption("Ascent SEO Team")
 
 st.write(
     "SiteOne Crawler と Unlighthouse を利用して、"
