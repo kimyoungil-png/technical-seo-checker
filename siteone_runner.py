@@ -7,7 +7,7 @@ from pathlib import Path
 SITEONE_VERSION = "2.5.1"
 
 SITEONE_DIR = Path("/tmp/siteone")
-SITEONE_BIN = SITEONE_DIR / "siteone-crawler"
+SITEONE_BIN = SITEONE_DIR / "siteone-crawler" / "siteone-crawler"
 
 DOWNLOAD_URL = (
     "https://github.com/janreges/siteone-crawler/releases/download/"
@@ -17,11 +17,16 @@ DOWNLOAD_URL = (
 
 
 def ensure_siteone():
-    SITEONE_DIR.mkdir(parents=True, exist_ok=True)
-
-    if SITEONE_BIN.exists():
+    if SITEONE_BIN.is_file():
         SITEONE_BIN.chmod(0o755)
         return str(SITEONE_BIN)
+
+    # 古い展開結果を削除
+    if SITEONE_DIR.exists():
+        import shutil
+        shutil.rmtree(SITEONE_DIR)
+
+    SITEONE_DIR.mkdir(parents=True, exist_ok=True)
 
     archive_path = "/tmp/siteone.tar.gz"
 
@@ -33,32 +38,31 @@ def ensure_siteone():
     with tarfile.open(archive_path, "r:gz") as tar:
         tar.extractall(SITEONE_DIR)
 
-    found = list(
-        SITEONE_DIR.rglob("siteone-crawler")
-    )
+    # 実行ファイルを探す
+    candidates = [
+        p
+        for p in SITEONE_DIR.rglob("siteone-crawler")
+        if p.is_file()
+    ]
 
-    if not found:
+    if not candidates:
         raise RuntimeError(
-            "SiteOne Crawler binary not found"
+            "SiteOne Crawlerの実行ファイルが見つかりませんでした。"
         )
 
-    binary = found[0]
+    binary = candidates[0]
+    binary.chmod(0o755)
 
-    if binary != SITEONE_BIN:
-        os.replace(
-            binary,
-            SITEONE_BIN,
-        )
-
-    SITEONE_BIN.chmod(0o755)
-
-    return str(SITEONE_BIN)
+    return str(binary)
 
 
 def run_siteone(url: str):
     binary = ensure_siteone()
 
     output_file = "/tmp/siteone-result.txt"
+
+    if os.path.exists(output_file):
+        os.remove(output_file)
 
     cmd = [
         binary,
@@ -91,4 +95,5 @@ def run_siteone(url: str):
         "stdout": result.stdout,
         "stderr": result.stderr,
         "report": text_output,
+        "binary": binary,
     }
