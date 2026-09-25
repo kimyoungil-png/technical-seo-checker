@@ -1,4 +1,5 @@
 import streamlit as st
+from siteone_runner import run_siteone
 
 st.set_page_config(
     page_title="Technical SEO Checker",
@@ -23,8 +24,30 @@ url = st.text_input(
 
 if st.button("SEOチェック開始", type="primary"):
     if not url:
-        st.warning("URLを入力してください。")
+        st.warning("URLを入力してください.")
     else:
         st.info(f"チェック対象: {url}")
-        st.write("SiteOne Crawler: 未接続")
-        st.write("Unlighthouse: 未接続")
+
+        with st.spinner("SiteOne Crawlerでチェック中..."):
+            try:
+                result = run_siteone(url)
+
+                if result["returncode"] == 0:
+                    st.success("SiteOne Crawler 完了")
+
+                    st.subheader("SiteOne Crawler 結果")
+
+                    if result["report"]:
+                        st.text(result["report"])
+                    else:
+                        st.text(result["stdout"])
+
+                else:
+                    st.error("SiteOne Crawlerでエラーが発生しました。")
+                    st.code(result["stderr"])
+
+            except Exception as e:
+                st.error("SiteOne Crawlerを実行できませんでした。")
+                st.exception(e)
+
+        st.info("Unlighthouse は次のステップで接続します。")
