@@ -1,5 +1,6 @@
 import streamlit as st
 from siteone_runner import run_siteone
+from unlighthouse_runner import run_unlighthouse
 
 st.set_page_config(
     page_title="Technical SEO Checker",
@@ -50,4 +51,29 @@ if st.button("SEOチェック開始", type="primary"):
                 st.error("SiteOne Crawlerを実行できませんでした。")
                 st.exception(e)
 
-        st.info("Unlighthouse は次のステップで接続します。")
+with st.spinner("Unlighthouseでチェック中..."):
+    try:
+        ul_result = run_unlighthouse(url)
+
+        if ul_result["returncode"] == 0:
+            st.success("Unlighthouse 完了")
+
+            st.subheader("Unlighthouse 結果")
+
+            if ul_result["reports"]:
+                st.write(f"JSONレポート数: {len(ul_result['reports'])}")
+
+                first_report = ul_result["reports"][0]["data"]
+
+                st.json(first_report)
+            else:
+                st.warning("JSONレポートが見つかりませんでした。")
+                st.code(ul_result["stdout"])
+
+        else:
+            st.error("Unlighthouseでエラーが発生しました。")
+            st.code(ul_result["stderr"])
+
+    except Exception as e:
+        st.error("Unlighthouseを実行できませんでした。")
+        st.exception(e)
