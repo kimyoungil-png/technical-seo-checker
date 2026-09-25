@@ -1,6 +1,8 @@
 import streamlit as st
+
 from siteone_runner import run_siteone
 from unlighthouse_runner import run_unlighthouse
+
 
 st.set_page_config(
     page_title="Technical SEO Checker",
@@ -8,8 +10,11 @@ st.set_page_config(
     layout="wide",
 )
 
-st.image("ASCENTSEOLOGO.png", width=320)
 
+# ロゴ
+st.image("ASCENTSEOLOGO.png", width=380)
+
+# タイトル
 st.title("Technical SEO Checker")
 st.caption("Ascent SEO Team")
 
@@ -18,62 +23,155 @@ st.write(
     "指定URLのテクニカルSEOをチェックします。"
 )
 
+st.divider()
+
+
+# URL入力
 url = st.text_input(
     "チェックするURL",
-    placeholder="https://ascentnet.co.jp/..."
+    placeholder="https://..."
 )
 
+
+# ボタンを押した時だけ実行
 if st.button("SEOチェック開始", type="primary"):
+
     if not url:
-        st.warning("URLを入力してください.")
+        st.warning("URLを入力してください。")
+
+    elif not url.startswith(("http://", "https://")):
+        st.warning("http:// または https:// から始まるURLを入力してください。")
+
     else:
         st.info(f"チェック対象: {url}")
 
-        with st.spinner("SiteOne Crawlerでチェック中..."):
-            try:
-                result = run_siteone(url)
+        #
+        # SiteOne Crawler
+        #
+        st.subheader("1. SiteOne Crawler")
 
-                if result["returncode"] == 0:
+        with st.spinner("SiteOne Crawlerでチェック中..."):
+
+            try:
+                siteone_result = run_siteone(url)
+
+                if siteone_result["returncode"] == 0:
+
                     st.success("SiteOne Crawler 完了")
 
-                    st.subheader("SiteOne Crawler 結果")
+                    if siteone_result["report"]:
+                        with st.expander(
+                            "SiteOne Crawler 詳細結果",
+                            expanded=True
+                        ):
+                            st.text(siteone_result["report"])
 
-                    if result["report"]:
-                        st.text(result["report"])
+                    elif siteone_result["stdout"]:
+                        with st.expander(
+                            "SiteOne Crawler 詳細結果",
+                            expanded=True
+                        ):
+                            st.text(siteone_result["stdout"])
+
                     else:
-                        st.text(result["stdout"])
+                        st.warning(
+                            "SiteOne Crawlerは完了しましたが、"
+                            "表示できる結果がありませんでした。"
+                        )
 
                 else:
-                    st.error("SiteOne Crawlerでエラーが発生しました。")
-                    st.code(result["stderr"])
+                    st.error(
+                        "SiteOne Crawlerでエラーが発生しました。"
+                    )
+
+                    if siteone_result["stderr"]:
+                        st.code(siteone_result["stderr"])
+
+                    if siteone_result["stdout"]:
+                        st.code(siteone_result["stdout"])
 
             except Exception as e:
-                st.error("SiteOne Crawlerを実行できませんでした。")
+                st.error(
+                    "SiteOne Crawlerを実行できませんでした。"
+                )
                 st.exception(e)
 
-with st.spinner("Unlighthouseでチェック中..."):
-    try:
-        ul_result = run_unlighthouse(url)
 
-        if ul_result["returncode"] == 0:
-            st.success("Unlighthouse 完了")
+        st.divider()
 
-            st.subheader("Unlighthouse 結果")
 
-            if ul_result["reports"]:
-                st.write(f"JSONレポート数: {len(ul_result['reports'])}")
+        #
+        # Unlighthouse
+        #
+        st.subheader("2. Unlighthouse")
 
-                first_report = ul_result["reports"][0]["data"]
+        with st.spinner("Unlighthouseでチェック中..."):
 
-                st.json(first_report)
-            else:
-                st.warning("JSONレポートが見つかりませんでした。")
-                st.code(ul_result["stdout"])
+            try:
+                unlighthouse_result = run_unlighthouse(url)
 
-        else:
-            st.error("Unlighthouseでエラーが発生しました。")
-            st.code(ul_result["stderr"])
+                if unlighthouse_result["returncode"] == 0:
 
-    except Exception as e:
-        st.error("Unlighthouseを実行できませんでした。")
-        st.exception(e)
+                    st.success("Unlighthouse 完了")
+
+                    reports = unlighthouse_result.get(
+                        "reports",
+                        []
+                    )
+
+                    if reports:
+
+                        st.write(
+                            f"JSONレポート数: {len(reports)}"
+                        )
+
+                        first_report = reports[0]["data"]
+
+                        with st.expander(
+                            "Unlighthouse JSON結果",
+                            expanded=False
+                        ):
+                            st.json(first_report)
+
+                    else:
+                        st.warning(
+                            "Unlighthouseは完了しましたが、"
+                            "JSONレポートが見つかりませんでした。"
+                        )
+
+                        if unlighthouse_result["stdout"]:
+                            st.code(
+                                unlighthouse_result["stdout"]
+                            )
+
+                else:
+                    st.error(
+                        "Unlighthouseでエラーが発生しました。"
+                    )
+
+                    if unlighthouse_result["stderr"]:
+                        st.code(
+                            unlighthouse_result["stderr"]
+                        )
+
+                    if unlighthouse_result["stdout"]:
+                        with st.expander(
+                            "Unlighthouseログ",
+                            expanded=False
+                        ):
+                            st.code(
+                                unlighthouse_result["stdout"]
+                            )
+
+            except Exception as e:
+                st.error(
+                    "Unlighthouseを実行できませんでした。"
+                )
+                st.exception(e)
+
+
+        st.divider()
+
+        st.success(
+            "Technical SEOチェックが終了しました。"
+        )
