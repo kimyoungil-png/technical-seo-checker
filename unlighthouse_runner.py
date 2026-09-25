@@ -71,7 +71,7 @@ def run_unlighthouse(url: str):
         cmd,
         capture_output=True,
         text=True,
-        timeout=240,
+        timeout=600,
         env=env,
     )
 
