@@ -116,12 +116,66 @@ def inspect_page(url: str):
         for tag in h1_tags
     ]
 
+    heading_sequence = []
+    heading_issues = []
+    previous_heading = None
+
+    for tag in soup.find_all(re.compile(r"^h[1-6]$", re.IGNORECASE)):
+        level = int(tag.name[1])
+        text_value = tag.get_text(" ", strip=True)
+        heading_sequence.append({
+            "level": level,
+            "text": text_value,
+        })
+
+        if (
+            previous_heading is not None
+            and level > previous_heading["level"] + 1
+        ):
+            skipped = [
+                f"H{x}"
+                for x in range(
+                    previous_heading["level"] + 1,
+                    level,
+                )
+            ]
+            heading_issues.append({
+                "from_level": previous_heading["level"],
+                "from_text": previous_heading["text"],
+                "to_level": level,
+                "to_text": text_value,
+                "skipped": skipped,
+            })
+
+        previous_heading = {
+            "level": level,
+            "text": text_value,
+        }
+
     images = soup.find_all("img")
     missing_alt = [
         img
         for img in images
         if not img.has_attr("alt")
     ]
+
+    missing_alt_examples = []
+    for img in missing_alt[:5]:
+        src = (
+            img.get("src")
+            or img.get("data-src")
+            or img.get("data-lazy-src")
+            or img.get("srcset")
+            or ""
+        )
+        if src:
+            src = str(src).split(",")[0].strip().split(" ")[0]
+            src = urljoin(final_url, src)
+
+        missing_alt_examples.append({
+            "src": src or "src取得できず",
+            "class": " ".join(img.get("class", [])),
+        })
 
     viewport_tag = soup.find(
         "meta",
@@ -425,8 +479,11 @@ def inspect_page(url: str):
         "lang": lang,
         "h1_count": len(h1_tags),
         "h1_texts": h1_texts,
+        "heading_sequence": heading_sequence,
+        "heading_issues": heading_issues,
         "images_total": len(images),
         "images_missing_alt": len(missing_alt),
+        "images_missing_alt_examples": missing_alt_examples,
         "viewport": viewport,
         "charset": charset,
         "content_type": content_type,
