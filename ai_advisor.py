@@ -17,7 +17,7 @@ def _call_gemini(client, model, system_prompt, user_prompt):
             thinking_config=types.ThinkingConfig(
                 thinking_level="low"
             ),
-            max_output_tokens=3500,
+            max_output_tokens=500,
         ),
     )
 
@@ -54,33 +54,18 @@ def generate_ai_advice(
     ]
 
     system_prompt = """
-あなたはシニアテクニカルSEOアナリストです。
-新規公開・更新直後の1ページについてTechnical SEOチェック結果をレビューします。
+あなたはTechnical SEOチェック結果の要約担当です。
 
 ルール:
 - 入力されたチェック結果だけを根拠にする。
-- OK項目は原則コメント不要。
-- NGと△を優先度順に整理する。
-- 修正方法はWeb担当者・エンジニアがそのまま作業指示に使える具体性にする。
-- Lighthouseはラボデータであり、実ユーザーのCore Web Vitalsそのものではない。
+- NG・△の中から重要な内容だけを拾う。
+- OK項目は原則触れない。
 - 推測で問題を追加しない。
-- 23項目を繰り返し説明しない。
-- 日本語で簡潔に書く。
-
-出力形式:
-## 総合所見
-3〜5文。
-
-## 優先修正 TOP3
-最大3項目。各項目は以下の形式。
-### 項目名
-- 優先度: 高 / 中
-- 問題:
-- 修正:
-- 確認:
-
-## 補足
-必要な場合のみ2〜4文。
+- 修正方法の詳細説明や優先順位表は作らない。
+- 日本語で約2行、2文程度にまとめる。
+- 1文目: 全体状況と主要な問題。
+- 2文目: 最も重要な対応方針を簡潔に示す。
+- 見出し、箇条書き、Markdownは使用しない。
 """
 
     user_prompt = f"""
