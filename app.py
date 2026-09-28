@@ -17,6 +17,7 @@ st.set_page_config(
 st.image("ASCENTSEOLOGO.png", width=360)
 st.title("Technical SEO Checker")
 st.caption("Ascent SEO Team")
+# deploy-refresh-20260928
 
 st.write(
     "新規公開・更新した1ページを対象に、Technical SEOを23項目でチェックし、"
