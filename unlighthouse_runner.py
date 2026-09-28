@@ -10,10 +10,11 @@ CLOUD_RUN_API = (
 
 
 def run_unlighthouse(url: str):
-
-    payload = json.dumps({
-        "url": url
-    }).encode("utf-8")
+    payload = json.dumps(
+        {
+            "url": url
+        }
+    ).encode("utf-8")
 
     request = urllib.request.Request(
         CLOUD_RUN_API,
@@ -25,39 +26,31 @@ def run_unlighthouse(url: str):
     )
 
     try:
-
         with urllib.request.urlopen(
             request,
             timeout=180
         ) as response:
-
             body = response.read().decode("utf-8")
 
         data = json.loads(body)
 
         if data.get("success"):
-
             return {
                 "returncode": 0,
-                "stdout": data.get("message", ""),
                 "stderr": "",
-                "reports": [],
-                "report_count": data.get("reportCount", 0),
+                "metrics": data.get("metrics", {}),
             }
 
         return {
             "returncode": 1,
-            "stdout": data.get("stdout", ""),
             "stderr": (
-                data.get("stderr")
-                or data.get("error")
+                data.get("error")
                 or "Unlighthouse API error"
             ),
-            "reports": [],
+            "metrics": {},
         }
 
     except urllib.error.HTTPError as e:
-
         error_body = e.read().decode(
             "utf-8",
             errors="ignore"
@@ -65,19 +58,16 @@ def run_unlighthouse(url: str):
 
         return {
             "returncode": 1,
-            "stdout": "",
             "stderr": (
-                f"Cloud Run HTTP Error "
-                f"{e.code}\n{error_body}"
+                f"Cloud Run HTTP Error {e.code}\n"
+                f"{error_body}"
             ),
-            "reports": [],
+            "metrics": {},
         }
 
     except Exception as e:
-
         return {
             "returncode": 1,
-            "stdout": "",
             "stderr": str(e),
-            "reports": [],
+            "metrics": {},
         }
