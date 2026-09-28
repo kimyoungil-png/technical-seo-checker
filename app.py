@@ -420,7 +420,7 @@ if st.button(
                 "AIが診断結果を分析中..."
             ):
                 try:
-                    advice = generate_ai_advice(
+                    advice_result = generate_ai_advice(
                         url=url,
                         siteone_text=siteone_text,
                         metrics=metrics,
@@ -428,18 +428,39 @@ if st.button(
                         model=model,
                     )
 
-                    st.markdown(advice)
+                    st.markdown(
+                        advice_result.get("text", "")
+                    )
+
+                    used_model = advice_result.get(
+                        "model",
+                        model,
+                    )
+
+                    if advice_result.get(
+                        "fallback_used",
+                        False,
+                    ):
+                        st.info(
+                            "Gemini 3.8 Flashが混雑していたため、"
+                            "自動的にフォールバックモデルで分析しました。"
+                        )
 
                     st.caption(
-                        f"Gemini model: {model}"
+                        f"Gemini model: {used_model}"
                     )
 
                 except Exception as e:
                     st.error(
-                        "AI改善提案の生成中に"
-                        "エラーが発生しました。"
+                        "Gemini APIが一時的に混雑しているか、"
+                        "応答を取得できませんでした。"
+                        "少し時間をおいて再実行してください。"
                     )
-                    st.exception(e)
+                    with st.expander(
+                        "エラー詳細",
+                        expanded=False
+                    ):
+                        st.code(str(e))
 
 
     st.divider()
