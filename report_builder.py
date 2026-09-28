@@ -940,6 +940,9 @@ def build_checks(
         )
     )
 
+    if lighthouse_status == "skipped":
+        return checks
+
     lighthouse_not_run = lighthouse_status == "skipped"
     lighthouse_failed = lighthouse_status == "failed"
 
@@ -1028,11 +1031,7 @@ def build_checks(
         )
     )
 
-    if lighthouse_status == "skipped":
-        for row in checks:
-            if row["No"] >= 21 and row["Status"] == "—":
-                row["Action"] = "LighthouseオプションOFFのため判定対象外"
-    elif lighthouse_status == "failed":
+    if lighthouse_status == "failed":
         for row in checks:
             if row["No"] >= 21 and row["Status"] == "—":
                 row["Action"] = "Lighthouse計測に失敗したため未判定。必要に応じて再実行してください。"
