@@ -1049,19 +1049,24 @@ def counts(checks):
 
 def markdown_table(checks):
     lines = [
-        "| No | 分類 | チェック項目 | 説明 | 判定 | 結果 | 修正コメント |",
-        "|---:|---|---|---|:---:|---|---|",
+        "| No | 分類 | チェック項目 | 説明 | 判定 | 結果 |",
+        "|---:|---|---|---|:---:|---|",
     ]
 
     for row in checks:
+        result_text = str(row["Result"])
+        action_text = str(row["Action"])
+
+        if action_text and action_text != "対応不要":
+            result_text += f" / コメント: {action_text}"
+
         values = [
             str(row["No"]),
             row["Category"],
             row["Item"],
             row["Meaning"],
             row["Status"],
-            row["Result"],
-            row["Action"],
+            result_text,
         ]
 
         values = [
@@ -1084,20 +1089,24 @@ def tsv_table(checks):
         "説明",
         "判定",
         "結果",
-        "修正コメント",
     ]
 
     lines = ["\t".join(headers)]
 
     for row in checks:
+        result_text = str(row["Result"])
+        action_text = str(row["Action"])
+
+        if action_text and action_text != "対応不要":
+            result_text += f" / コメント: {action_text}"
+
         values = [
             str(row["No"]),
             str(row["Category"]),
             str(row["Item"]),
             str(row["Meaning"]),
             str(row["Status"]),
-            str(row["Result"]),
-            str(row["Action"]),
+            result_text,
         ]
 
         values = [
@@ -1122,6 +1131,12 @@ def html_table(checks):
             "NG": "status-ng",
         }.get(status, "")
 
+        result_text = str(row["Result"])
+        action_text = str(row["Action"])
+
+        if action_text and action_text != "対応不要":
+            result_text += f" / コメント: {action_text}"
+
         rows.append(
             "<tr>"
             f"<td class='num'>{row['No']}</td>"
@@ -1129,8 +1144,7 @@ def html_table(checks):
             f"<td class='item'>{html.escape(str(row['Item']))}</td>"
             f"<td class='desc'>{html.escape(str(row['Meaning']))}</td>"
             f"<td class='judge {status_class}'>{html.escape(str(status))}</td>"
-            f"<td>{html.escape(str(row['Result']))}</td>"
-            f"<td>{html.escape(str(row['Action']))}</td>"
+            f"<td>{html.escape(result_text)}</td>"
             "</tr>"
         )
 
@@ -1181,7 +1195,6 @@ def html_table(checks):
           <th>説明</th>
           <th>判定</th>
           <th>結果</th>
-          <th>修正コメント</th>
         </tr>
       </thead>
       <tbody>
