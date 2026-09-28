@@ -627,6 +627,48 @@ def inspect_page(url: str):
             if breadcrumb_items:
                 microdata_breadcrumbs.append(breadcrumb_items)
 
+    content_root = (
+        soup.find("main")
+        or soup.find("article")
+        or soup.body
+        or soup
+    )
+    excluded_text_tags = {
+        "script",
+        "style",
+        "noscript",
+        "template",
+        "svg",
+        "nav",
+        "header",
+        "footer",
+        "form",
+        "button",
+        "select",
+        "option",
+    }
+    body_text_parts = []
+
+    for text_node in content_root.find_all(string=True):
+        parent = text_node.parent
+        if parent is None:
+            continue
+
+        if getattr(parent, "name", "") in excluded_text_tags:
+            continue
+
+        if any(
+            getattr(ancestor, "name", "") in excluded_text_tags
+            for ancestor in parent.parents
+        ):
+            continue
+
+        text_value = re.sub(r"\s+", " ", str(text_node)).strip()
+        if text_value:
+            body_text_parts.append(text_value)
+
+    body_text = "\n".join(body_text_parts).strip()
+
     return {
         "ok": True,
         "status": status,
@@ -666,4 +708,6 @@ def inspect_page(url: str):
         "microdata_count": len(microdata_items),
         "microdata_types": sorted(set(microdata_types)),
         "microdata_breadcrumbs": microdata_breadcrumbs,
+        "body_text": body_text,
+        "body_text_char_count": len(body_text),
     }
