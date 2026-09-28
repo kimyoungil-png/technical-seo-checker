@@ -35,8 +35,14 @@ def ensure_siteone():
         archive_path,
     )
 
-    with tarfile.open(archive_path, "r:gz") as tar:
-        tar.extractall(SITEONE_DIR)
+    try:
+        with tarfile.open(archive_path, "r:gz") as tar:
+            tar.extractall(SITEONE_DIR)
+    finally:
+        try:
+            os.remove(archive_path)
+        except FileNotFoundError:
+            pass
 
     candidates = [
         p
@@ -105,11 +111,16 @@ def run_siteone(url: str):
         except Exception:
             json_data = {}
 
+    for path in (text_file, json_file):
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+
     return {
         "returncode": result.returncode,
         "stdout": result.stdout,
         "stderr": result.stderr,
         "report": text_output,
         "data": json_data,
-        "binary": binary,
     }
