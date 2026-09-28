@@ -463,32 +463,40 @@ def build_checks(
         )
     )
 
-    heading_item = _summary_item(
-        siteone_data,
-        "pages-with-skipped-heading-levels",
-    )
-    heading_status = _status_from_summary(heading_item)
-    if heading_status is None:
-        multi_item = _summary_item(
+    direct_heading_issues = page_data.get("heading_issues", [])
+
+    if page_data.get("ok"):
+        if direct_heading_issues:
+            heading_status = "△"
+            examples = []
+            for issue in direct_heading_issues[:3]:
+                skipped = " / ".join(issue.get("skipped", []))
+                examples.append(
+                    f"<h{issue.get('from_level')}> "
+                    f"{issue.get('from_text') or '（テキストなし）'} → "
+                    f"<h{issue.get('to_level')}> "
+                    f"{issue.get('to_text') or '（テキストなし）'} "
+                    f"（{skipped}をスキップ）"
+                )
+
+            heading_text = (
+                f"このページで見出し階層のスキップ {len(direct_heading_issues)}件"
+                f" / 例: {' | '.join(examples)}"
+            )
+        else:
+            heading_status = "OK"
+            heading_text = "このページでは見出し階層のスキップなし"
+    else:
+        heading_item = _summary_item(
             siteone_data,
-            "pages-with-multiple-h1",
+            "pages-with-skipped-heading-levels",
         )
-        heading_status = _status_from_summary(multi_item) or "△"
+        heading_status = _status_from_summary(heading_item) or "—"
         heading_text = (
-            multi_item.get("text")
-            if multi_item
+            heading_item.get("text", "判定情報なし")
+            if heading_item
             else "判定情報なし"
         )
-    else:
-        heading_text = heading_item.get("text", "")
-
-    heading_examples = _heading_issue_examples(
-        siteone_data,
-        limit=3,
-    )
-
-    if heading_examples:
-        heading_text += " / 例: " + " | ".join(heading_examples)
 
     checks.append(
         _row(
@@ -535,22 +543,36 @@ def build_checks(
         )
     )
 
-    alt_item = _summary_item(
-        siteone_data,
-        "pages-without-image-alt-attributes",
-    )
-    alt_status = _status_from_summary(alt_item)
-    if alt_status is None and page_data.get("ok"):
+    if page_data.get("ok"):
         missing_alt = page_data.get("images_missing_alt", 0)
+        total_images = page_data.get("images_total", 0)
         alt_status = "OK" if missing_alt == 0 else "△"
         alt_result = (
-            f"alt属性なし {missing_alt} / "
-            f"{page_data.get('images_total', 0)}画像"
+            f"このページの画像 {total_images}件 / "
+            f"alt属性なし {missing_alt}件"
         )
+
+        alt_examples = page_data.get(
+            "images_missing_alt_examples",
+            [],
+        )
+
+        if alt_examples:
+            alt_result += (
+                " / 例: "
+                + " | ".join(
+                    example.get("src") or "src取得できず"
+                    for example in alt_examples[:3]
+                )
+            )
     else:
-        alt_status = alt_status or "△"
+        alt_item = _summary_item(
+            siteone_data,
+            "pages-without-image-alt-attributes",
+        )
+        alt_status = _status_from_summary(alt_item) or "—"
         alt_result = (
-            alt_item.get("text", "")
+            alt_item.get("text", "判定情報なし")
             if alt_item
             else "判定情報なし"
         )
