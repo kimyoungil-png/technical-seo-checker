@@ -136,6 +136,7 @@ def build_checks(
     siteone_data,
     page_data,
     metrics,
+    lighthouse_status="success",
 ):
     checks = []
     seo_row = _siteone_seo_row(siteone_data)
@@ -553,6 +554,16 @@ def build_checks(
         )
     )
 
+    lighthouse_not_run = lighthouse_status == "skipped"
+    lighthouse_failed = lighthouse_status == "failed"
+
+    if lighthouse_not_run:
+        lighthouse_missing_result = "未実施（オプションOFF）"
+    elif lighthouse_failed:
+        lighthouse_missing_result = "取得失敗"
+    else:
+        lighthouse_missing_result = "取得できず"
+
     seo_score = metrics.get("seo")
     seo_status = (
         "—"
@@ -573,7 +584,7 @@ def build_checks(
             "Lighthouse",
             "SEO Score",
             seo_status,
-            str(seo_score) if seo_score is not None else "取得できず",
+            str(seo_score) if seo_score is not None else lighthouse_missing_result,
             "Lighthouseが確認できる基本的なSEO実装の総合スコアです。検索順位そのものではありません。",
             "Lighthouse SEO監査の失敗項目を確認し、クロール、メタ情報、リンク、モバイル対応などの基本実装を修正してください。",
         )
@@ -599,7 +610,7 @@ def build_checks(
             "Performance",
             "Performance Score",
             perf_status,
-            str(perf) if perf is not None else "取得できず",
+            str(perf) if perf is not None else lighthouse_missing_result,
             "Lighthouseのラボ環境で、表示速度やメインスレッド負荷を総合評価したスコアです。",
             "LCP、TBTなど低下要因を優先し、画像、JavaScript、CSS、サーバー応答を改善してください。",
         )
@@ -625,7 +636,7 @@ def build_checks(
             "Performance",
             "LCP",
             lcp_status,
-            metrics.get("lcp") or "取得できず",
+            metrics.get("lcp") or lighthouse_missing_result,
             "主要コンテンツが表示されるまでの時間です。2.5秒以下を良好の目安とします。",
             "LCP対象画像の圧縮・preload、不要なレンダーブロック削減、サーバー応答改善を優先してください。",
         )
@@ -651,7 +662,7 @@ def build_checks(
             "Performance",
             "CLS",
             cls_status,
-            metrics.get("cls") or "取得できず",
+            metrics.get("cls") or lighthouse_missing_result,
             "読み込み中のレイアウトのズレを表す指標です。0.1以下を良好の目安とします。",
             "画像・広告・埋め込み領域にサイズを確保し、後挿入コンテンツやWebフォントによるズレを抑えてください。",
         )
@@ -677,11 +688,20 @@ def build_checks(
             "Performance",
             "TBT",
             tbt_status,
-            metrics.get("tbt") or "取得できず",
+            metrics.get("tbt") or lighthouse_missing_result,
             "メインスレッドが長時間ブロックされた合計時間です。200ms以下を良好の目安とします。",
             "長いJavaScriptタスクを分割し、不要なJS・サードパーティタグを削減または遅延読み込みしてください。",
         )
     )
+
+    if lighthouse_status == "skipped":
+        for row in checks:
+            if row["No"] >= 16 and row["Status"] == "—":
+                row["Action"] = "LighthouseオプションOFFのため判定対象外"
+    elif lighthouse_status == "failed":
+        for row in checks:
+            if row["No"] >= 16 and row["Status"] == "—":
+                row["Action"] = "Lighthouse計測に失敗したため未判定。必要に応じて再実行してください。"
 
     return checks
 
@@ -817,7 +837,7 @@ def build_copy_report(
         "# Technical SEO Check Report",
         "",
         f"- URL: {url}",
-        f"- 判定: OK {c['OK']} / △ {c['△']} / NG {c['NG']}",
+        f"- 判定: OK {c['OK']} / △ {c['△']} / NG {c['NG']} / — {c['—']}",
         "",
         "## チェック結果",
         "",
