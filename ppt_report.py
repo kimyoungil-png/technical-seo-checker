@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
-from pptx.util import Inches, Pt
+from pptx.util import Cm, Inches, Pt
 
 
 CLOUD_RUN_SCREENSHOT_API = (
@@ -193,7 +193,7 @@ def _add_screenshot_fixed(slide, screenshot_bytes: bytes):
     # the mobile first-view screenshot is always inserted at this position.
     shot_left = Inches(0.55)
     shot_top = Inches(1.50)
-    shot_width = Inches(2.38)
+    shot_width = Cm(6.5)
     shot_height = Inches(5.64)
 
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as image_file:
