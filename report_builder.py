@@ -1,3 +1,4 @@
+import re
 from urllib.parse import urlsplit, urlunsplit
 
 
@@ -77,6 +78,86 @@ def _status_from_summary(item):
         return "△"
 
     return None
+
+
+
+def _heading_issue_examples(siteone_data, limit=3):
+    rows = (
+        siteone_data.get("tables", {})
+        .get("seo-headings", {})
+        .get("rows", [])
+    )
+
+    examples = []
+
+    for row in rows:
+        try:
+            errors = int(row.get("headingsErrorsCount", 0) or 0)
+        except Exception:
+            errors = 0
+
+        if errors <= 0:
+            continue
+
+        headings_text = row.get("headings", "") or ""
+        path = row.get("urlPathAndQuery", "") or ""
+
+        headings = re.findall(
+            r"<h([1-6])>\s*(.*?)(?=\s*<h[1-6]>|$)",
+            headings_text,
+            flags=re.IGNORECASE,
+        )
+
+        previous_level = None
+        previous_text = ""
+        issue_text = ""
+
+        for level_raw, text_value in headings:
+            level = int(level_raw)
+            clean_text = re.sub(r"\s*\[#.*?\]\s*$", "", text_value).strip()
+
+            if (
+                previous_level is not None
+                and level > previous_level + 1
+            ):
+                missing = " / ".join(
+                    f"H{x}"
+                    for x in range(previous_level + 1, level)
+                )
+                issue_text = (
+                    f"<h{previous_level}> {previous_text} → "
+                    f"<h{level}> {clean_text} "
+                    f"（{missing}をスキップ）"
+                )
+                break
+
+            previous_level = level
+            previous_text = clean_text
+
+        if not issue_text and headings:
+            level_raw, text_value = headings[0]
+            clean_text = re.sub(
+                r"\s*\[#.*?\]\s*$",
+                "",
+                text_value,
+            ).strip()
+
+            if int(level_raw) != 1:
+                issue_text = (
+                    f"先頭見出しが<h{level_raw}> {clean_text} "
+                    "（H1より前に上位レベル以外の見出し）"
+                )
+
+        if not issue_text:
+            issue_text = f"見出し階層エラー {errors}件"
+
+        prefix = f"{path}: " if path else ""
+        examples.append(prefix + issue_text)
+
+        if len(examples) >= limit:
+            break
+
+    return examples
 
 
 TECHNICAL_MEANINGS = {
@@ -360,6 +441,14 @@ def build_checks(
         )
     else:
         heading_text = heading_item.get("text", "")
+
+    heading_examples = _heading_issue_examples(
+        siteone_data,
+        limit=3,
+    )
+
+    if heading_examples:
+        heading_text += " / 例: " + " | ".join(heading_examples)
 
     checks.append(
         _row(
