@@ -19,7 +19,7 @@ st.title("Technical SEO Checker")
 st.caption("Ascent SEO Team")
 
 st.write(
-    "新規公開・更新した1ページを対象に、Technical SEOを20項目でチェックし、"
+    "新規公開・更新した1ページを対象に、Technical SEOを25項目でチェックし、"
     "そのまま共有できる1枚レポートを作成します。"
 )
 
@@ -152,7 +152,7 @@ if st.button("Technical SEOチェック開始", type="primary"):
             f"NGが{c['NG']}件あります。公開・更新後の優先修正対象として確認してください。"
         )
 
-    st.subheader("20項目チェック")
+    st.subheader("25項目チェック")
     st.markdown(
         html_table(checks),
         unsafe_allow_html=True,
