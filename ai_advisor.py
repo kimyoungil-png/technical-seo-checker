@@ -130,29 +130,24 @@ Lighthouse metrics:
             if not _is_retryable_error(exc):
                 break
 
-    # Stable low-cost fallback for short summaries.
-    for delay in (0,):
-        if delay:
-            time.sleep(delay)
-        try:
-            response = _call_gemini(
-                client,
-                FALLBACK_MODEL,
-                system_prompt,
-                user_prompt,
-            )
-            text = response.text or ""
-            if not text.strip():
-                raise RuntimeError("Gemini fallback returned an empty response")
-            return {
-                "text": text,
-                "model": FALLBACK_MODEL,
-                "fallback_used": True,
-            }
-        except Exception as exc:
-            last_error = exc
-            if not _is_retryable_error(exc):
-                break
+    # One low-cost fallback attempt is enough after the primary retries.
+    try:
+        response = _call_gemini(
+            client,
+            FALLBACK_MODEL,
+            system_prompt,
+            user_prompt,
+        )
+        text = response.text or ""
+        if not text.strip():
+            raise RuntimeError("Gemini fallback returned an empty response")
+        return {
+            "text": text,
+            "model": FALLBACK_MODEL,
+            "fallback_used": True,
+        }
+    except Exception as exc:
+        last_error = exc
 
     raise RuntimeError(
         f"Gemini APIからまとめを取得できませんでした: {last_error}"
