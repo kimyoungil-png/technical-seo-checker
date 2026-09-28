@@ -265,6 +265,7 @@ if audit:
                 ppt_result = build_ppt_report(
                     url=checked_url,
                     checks=checks,
+                    summary=ai_text,
                 )
 
                 st.session_state["ppt_report"] = ppt_result
