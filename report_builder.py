@@ -1076,6 +1076,40 @@ def markdown_table(checks):
     return "\n".join(lines)
 
 
+def tsv_table(checks):
+    headers = [
+        "No",
+        "分類",
+        "チェック項目",
+        "説明",
+        "判定",
+        "結果",
+        "修正コメント",
+    ]
+
+    lines = ["\t".join(headers)]
+
+    for row in checks:
+        values = [
+            str(row["No"]),
+            str(row["Category"]),
+            str(row["Item"]),
+            str(row["Meaning"]),
+            str(row["Status"]),
+            str(row["Result"]),
+            str(row["Action"]),
+        ]
+
+        values = [
+            value.replace("\t", " ").replace("\n", " ")
+            for value in values
+        ]
+
+        lines.append("\t".join(values))
+
+    return "\n".join(lines)
+
+
 def html_table(checks):
     import html
 
