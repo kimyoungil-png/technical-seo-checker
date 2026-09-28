@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import urllib.request
@@ -21,7 +22,6 @@ def ensure_siteone():
         SITEONE_BIN.chmod(0o755)
         return str(SITEONE_BIN)
 
-    # 古い展開結果を削除
     if SITEONE_DIR.exists():
         import shutil
         shutil.rmtree(SITEONE_DIR)
@@ -38,7 +38,6 @@ def ensure_siteone():
     with tarfile.open(archive_path, "r:gz") as tar:
         tar.extractall(SITEONE_DIR)
 
-    # 実行ファイルを探す
     candidates = [
         p
         for p in SITEONE_DIR.rglob("siteone-crawler")
@@ -59,16 +58,19 @@ def ensure_siteone():
 def run_siteone(url: str):
     binary = ensure_siteone()
 
-    output_file = "/tmp/siteone-result.txt"
+    text_file = "/tmp/siteone-result.txt"
+    json_file = "/tmp/siteone-result.json"
 
-    if os.path.exists(output_file):
-        os.remove(output_file)
+    for path in (text_file, json_file):
+        if os.path.exists(path):
+            os.remove(path)
 
     cmd = [
         binary,
         f"--url={url}",
         "--single-page",
-        f"--output-text-file={output_file}",
+        f"--output-text-file={text_file}",
+        f"--output-json-file={json_file}",
         "--no-color",
     ]
 
@@ -80,20 +82,34 @@ def run_siteone(url: str):
     )
 
     text_output = ""
+    json_data = {}
 
-    if os.path.exists(output_file):
+    if os.path.exists(text_file):
         with open(
-            output_file,
+            text_file,
             "r",
             encoding="utf-8",
             errors="ignore",
         ) as f:
             text_output = f.read()
 
+    if os.path.exists(json_file):
+        try:
+            with open(
+                json_file,
+                "r",
+                encoding="utf-8",
+                errors="ignore",
+            ) as f:
+                json_data = json.load(f)
+        except Exception:
+            json_data = {}
+
     return {
         "returncode": result.returncode,
         "stdout": result.stdout,
         "stderr": result.stderr,
         "report": text_output,
+        "data": json_data,
         "binary": binary,
     }
