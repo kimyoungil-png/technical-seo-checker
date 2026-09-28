@@ -84,16 +84,21 @@ TECHNICAL_MEANINGS = {
     "HTTPS": "TLSで暗号化されたHTTPS配信かを確認します。HTTPSは通信保護に加え、正規URL・リダイレクト設計の基盤になります。",
     "Indexability": "robots.txt、meta robots、X-Robots-Tagなどのクロール／インデックス制御を確認し、検索エンジンのインデックス対象になれる状態かを判定します。",
     "Canonical": "rel=canonicalの正規化シグナルを確認し、重複URL群の代表URLが実際の最終到達URLと整合しているかを判定します。",
-    "Title": "HTML <title>を確認します。SERPのタイトル候補であり、検索エンジンがページ主題・クエリ関連性を理解する主要なオンページシグナルです。",
-    "Title Length": "Titleの文字量を確認します。過度に短い場合は主題の識別性が低下し、長すぎる場合はSERPでの省略・再生成が起こりやすくなります。",
-    "Meta Description": "meta name=descriptionの有無を確認します。直接的なランキング要因ではありませんが、SERPスニペット候補としてCTRと検索意図の伝達に関与します。",
-    "Meta Description Length": "meta descriptionの情報量を確認します。検索結果上の表示幅を意識しつつ、ページ内容・ベネフィット・検索意図を過不足なく記述できているかを見ます。",
+    "Title": "HTML <title>の有無と文字量を確認します。SERPのタイトル候補であり、検索エンジンがページ主題・クエリ関連性を理解する主要なオンページシグナルです。",
+    "Meta Description": "meta name=descriptionの有無と文字量を確認します。直接的なランキング要因ではありませんが、SERPスニペット候補としてCTRと検索意図の伝達に関与します。",
     "H1": "最上位見出しH1の有無と個数を確認します。DOM上の見出しアウトラインとページの主題を明確化するセマンティックHTMLの基本要素です。",
     "Heading Structure": "H1→H2→H3の見出し階層を確認し、heading levelのスキップや不自然なアウトラインがないかを判定します。",
     "Lang Attribute": "html要素のlang属性を確認します。文書言語を検索エンジン、ブラウザ、スクリーンリーダーへ明示する国際化・アクセシビリティ上の基本設定です。",
     "Image Alt": "img要素のalt属性を確認します。画像検索・アクセシビリティに必要な代替テキストで、意味のある画像と装飾画像を適切に区別します。",
     "Viewport": "meta viewportを確認します。モバイル端末でのCSS viewportを正しく設定し、レスポンシブレンダリングを成立させる基本要件です。",
     "Schema Markup": "JSON-LD / Microdataの構造化データを検出し、JSON-LDの構文妥当性とSchema.orgの@typeを確認します。Google Rich Results Testの代替ではありません。",
+    "BreadcrumbList": "Schema.orgのBreadcrumbListを確認し、階層名・position・リンク先がページのパンくず構造と整合しているかを確認します。",
+    "Final URL / Redirect": "入力URLから最終到達URLまでのリダイレクト有無を確認します。公開URL・canonical・内部リンクでURL表記を統一するための確認項目です。",
+    "Hreflang": "link rel=alternate hreflangの設定を確認します。言語・地域別URLがあるサイトで検索エンジンへ対応関係を伝える国際SEOシグナルです。",
+    "Open Graph": "og:title、og:description、og:image、og:url等のOpen Graphメタデータを確認します。SNS共有時の表示品質とURL整合性を確認します。",
+    "Twitter Card": "twitter:card、twitter:title、twitter:description、twitter:image等を確認し、X等で共有された際のカード情報を検証します。",
+    "Internal Links": "対象ページ内の内部リンク数とクローラビリティを確認します。通常のhrefを持つ内部リンクはページ発見・サイト構造理解に利用されます。",
+    "Charset / Content-Type": "HTTP Content-TypeとHTML charset宣言を確認します。文字コードの不整合はHTML解析・文字化け・メタ情報解釈に影響する可能性があります。",
     "HTML Validity": "DOM構造上の重大なHTML不整合を確認します。壊れたマークアップはレンダリング、アクセシビリティ、クローラ解釈に影響する可能性があります。",
     "SEO Score": "Lighthouse SEOカテゴリの監査スコアです。インデックス可否、リンク、メタ情報、モバイル対応など基礎実装をラボ環境で検査します。順位スコアではありません。",
     "Performance Score": "LighthouseのPerformanceカテゴリ総合スコアです。FCP、LCP、TBT等を基にラボ環境でレンダリング性能を評価します。",
@@ -259,35 +264,24 @@ def build_checks(
         if page_data.get("ok")
         else ""
     ) or seo_row.get("title", "")
+
+    title_len = len(title)
+    if not title:
+        title_status = "NG"
+    elif 15 <= title_len <= 70:
+        title_status = "OK"
+    else:
+        title_status = "△"
+
     checks.append(
         _row(
             5,
             "Meta",
             "Title",
-            "OK" if title else "NG",
-            title or "未設定",
-            "検索結果のタイトル候補であり、ページテーマを検索エンジンへ伝える重要要素です。",
-            "ページ固有のTitleを設定し、主要テーマとブランド名が自然に伝わる内容にしてください。",
-        )
-    )
-
-    title_len = len(title)
-    if not title:
-        title_len_status = "NG"
-    elif 15 <= title_len <= 70:
-        title_len_status = "OK"
-    else:
-        title_len_status = "△"
-
-    checks.append(
-        _row(
-            6,
-            "Meta",
-            "Title Length",
-            title_len_status,
-            f"{title_len}文字",
-            "Titleが極端に短い・長い場合、テーマが伝わりにくい、または検索結果で省略されやすくなります。",
-            "目安として15〜70文字程度に収めつつ、重要語を前半に置き、冗長な文言を削ってください。",
+            title_status,
+            f"{title} / {title_len}文字" if title else "未設定 / 0文字",
+            "Titleを確認します。",
+            "Titleが未設定ならページ固有のTitleを追加してください。設定済みでも極端に短い・長い場合は、主要テーマを前半に置きつつ概ね15〜70文字を目安に調整してください。",
         )
     )
 
@@ -297,35 +291,23 @@ def build_checks(
         else ""
     ) or seo_row.get("description", "")
 
-    checks.append(
-        _row(
-            7,
-            "Meta",
-            "Meta Description",
-            "OK" if description else "NG",
-            description or "未設定",
-            "検索結果の説明文候補です。直接の順位要因ではありませんが、検索結果で内容を伝える役割があります。",
-            "ページ内容と検索意図を簡潔に説明する固有のmeta descriptionを設定してください。",
-        )
-    )
-
     desc_len = len(description)
     if not description:
-        desc_len_status = "NG"
+        desc_status = "NG"
     elif 50 <= desc_len <= 180:
-        desc_len_status = "OK"
+        desc_status = "OK"
     else:
-        desc_len_status = "△"
+        desc_status = "△"
 
     checks.append(
         _row(
-            8,
+            6,
             "Meta",
-            "Meta Description Length",
-            desc_len_status,
-            f"{desc_len}文字",
-            "説明文が短すぎると情報不足、長すぎると検索結果で省略される可能性があります。",
-            "日本語ページでは内容を優先しつつ、概ね50〜180文字を目安に簡潔に調整してください。",
+            "Meta Description",
+            desc_status,
+            f"{description} / {desc_len}文字" if description else "未設定 / 0文字",
+            "Meta Descriptionを確認します。",
+            "未設定ならページ内容と検索意図を要約する固有のdescriptionを追加してください。設定済みでも極端に短い・長い場合は概ね50〜180文字を目安に調整してください。",
         )
     )
 
@@ -350,7 +332,7 @@ def build_checks(
 
     checks.append(
         _row(
-            9,
+            7,
             "Content Structure",
             "H1",
             h1_status,
@@ -381,7 +363,7 @@ def build_checks(
 
     checks.append(
         _row(
-            10,
+            8,
             "Content Structure",
             "Heading Structure",
             heading_status,
@@ -410,7 +392,7 @@ def build_checks(
     )
     checks.append(
         _row(
-            11,
+            9,
             "HTML",
             "Lang Attribute",
             lang_status,
@@ -446,7 +428,7 @@ def build_checks(
 
     checks.append(
         _row(
-            12,
+            10,
             "HTML",
             "Image Alt",
             alt_status,
@@ -463,7 +445,7 @@ def build_checks(
     )
     checks.append(
         _row(
-            13,
+            11,
             "Mobile",
             "Viewport",
             "OK" if viewport else "NG",
@@ -523,13 +505,69 @@ def build_checks(
 
     checks.append(
         _row(
-            14,
+            12,
             "Structured Data",
             "Schema Markup",
             schema_status,
             schema_result,
             "構造化データを検証します。",
             "JSON-LDの構文エラーがある場合は修正してください。未実装の場合は、このページがArticle、Product、BreadcrumbList、FAQPage等のSchema.orgマークアップ対象かを確認し、検索機能上のメリットがある場合のみ実装してください。",
+        )
+    )
+
+    breadcrumb_lists = (
+        page_data.get("breadcrumb_lists", [])
+        + page_data.get("microdata_breadcrumbs", [])
+    )
+
+    if breadcrumb_lists:
+        breadcrumb_status = "OK"
+        breadcrumb_parts = []
+
+        for breadcrumb in breadcrumb_lists[:2]:
+            ordered = sorted(
+                breadcrumb,
+                key=lambda x: (
+                    int(x.get("position"))
+                    if str(x.get("position", "")).isdigit()
+                    else 999
+                ),
+            )
+
+            labels = []
+            for item in ordered:
+                name = (item.get("name") or "").strip()
+                position = item.get("position")
+                item_url = (item.get("url") or "").strip()
+
+                label = (
+                    f"{position}. {name}"
+                    if position and name
+                    else (name or item_url or "名称不明")
+                )
+
+                if item_url:
+                    label += f" ({item_url})"
+
+                labels.append(label)
+
+            if labels:
+                breadcrumb_parts.append(" → ".join(labels))
+
+        breadcrumb_result = " / ".join(breadcrumb_parts) or "BreadcrumbListを検出"
+    else:
+        breadcrumb_status = "△"
+        breadcrumb_result = "BreadcrumbListを検出せず"
+
+    checks.append(
+        _row(
+            13,
+            "Structured Data",
+            "BreadcrumbList",
+            breadcrumb_status,
+            breadcrumb_result,
+            "パンくず構造化データを確認します。",
+            "ページにパンくずナビゲーションがある場合はBreadcrumbListを実装し、position・name・item URLが実際の階層と一致するよう修正してください。",
         )
     )
 
@@ -540,7 +578,7 @@ def build_checks(
     html_status = _status_from_summary(html_item) or "△"
     checks.append(
         _row(
-            15,
+            14,
             "HTML",
             "HTML Validity",
             html_status,
@@ -551,6 +589,139 @@ def build_checks(
             ),
             "重大なHTML構造エラーがなく、ブラウザやクローラが安定して解釈できるかを確認します。",
             "不正なタグ構造、閉じタグ、入れ子、重複属性などを修正してください。",
+        )
+    )
+
+    final_url = page_data.get("final_url") or url
+    redirected = _normalize_url(final_url) != _normalize_url(url)
+    redirect_status = "△" if redirected else "OK"
+    redirect_result = (
+        f"{url} → {final_url}"
+        if redirected
+        else "リダイレクトなし"
+    )
+
+    checks.append(
+        _row(
+            15,
+            "その他",
+            "Final URL / Redirect",
+            redirect_status,
+            redirect_result,
+            "最終到達URLを確認します。",
+            "意図したリダイレクトであれば問題ありません。公開URL、canonical、内部リンク、サイトマップで正規URL表記が統一されているか確認してください。",
+        )
+    )
+
+    hreflang_entries = page_data.get("hreflang_entries", [])
+    if hreflang_entries:
+        hreflang_status = "OK"
+        hreflang_result = " / ".join(
+            f"{item.get('lang')}: {item.get('href')}"
+            for item in hreflang_entries[:6]
+        )
+    else:
+        hreflang_status = "—"
+        hreflang_result = "設定なし"
+
+    checks.append(
+        _row(
+            16,
+            "その他",
+            "Hreflang",
+            hreflang_status,
+            hreflang_result,
+            "言語・地域別URLの対応関係を確認します。",
+            "多言語・多地域ページがある場合のみ設定してください。単一言語サイトでは未設定でも問題ありません。",
+        )
+    )
+
+    open_graph = page_data.get("open_graph", {})
+    og_required = ["title", "description", "image"]
+    og_present = [key for key in og_required if open_graph.get(key)]
+    og_status = "OK" if len(og_present) == len(og_required) else "△"
+    og_result = (
+        f"{len(og_present)}/{len(og_required)}主要項目設定 "
+        f"(title={'有' if open_graph.get('title') else '無'}, "
+        f"description={'有' if open_graph.get('description') else '無'}, "
+        f"image={'有' if open_graph.get('image') else '無'})"
+    )
+
+    checks.append(
+        _row(
+            17,
+            "その他",
+            "Open Graph",
+            og_status,
+            og_result,
+            "Open Graphメタデータを確認します。",
+            "少なくともog:title、og:description、og:imageを設定し、必要に応じてog:urlもcanonicalと整合させてください。",
+        )
+    )
+
+    twitter = page_data.get("twitter_card", {})
+    twitter_required = ["card", "title", "description", "image"]
+    twitter_present = [key for key in twitter_required if twitter.get(key)]
+    twitter_status = "OK" if len(twitter_present) == len(twitter_required) else "△"
+    twitter_result = (
+        f"{len(twitter_present)}/{len(twitter_required)}主要項目設定 "
+        f"(card={'有' if twitter.get('card') else '無'}, "
+        f"title={'有' if twitter.get('title') else '無'}, "
+        f"description={'有' if twitter.get('description') else '無'}, "
+        f"image={'有' if twitter.get('image') else '無'})"
+    )
+
+    checks.append(
+        _row(
+            18,
+            "その他",
+            "Twitter Card",
+            twitter_status,
+            twitter_result,
+            "Twitter Cardメタデータを確認します。",
+            "SNS共有を想定する場合はtwitter:card等を設定してください。Open Graphのみで運用する方針の場合は△のままで問題ありません。",
+        )
+    )
+
+    internal_count = page_data.get("internal_link_count", 0)
+    invalid_count = page_data.get("invalid_link_count", 0)
+    internal_status = "OK" if internal_count > 0 and invalid_count == 0 else "△"
+    internal_result = (
+        f"内部リンク {internal_count}件 / "
+        f"javascript等の非クローラブルリンク {invalid_count}件"
+    )
+
+    checks.append(
+        _row(
+            19,
+            "その他",
+            "Internal Links",
+            internal_status,
+            internal_result,
+            "内部リンクの基本的なクローラビリティを確認します。",
+            "主要導線は通常の<a href>で実装してください。javascript:リンクや空hrefがある場合は、検索エンジンが辿れるURLリンクへ変更してください。",
+        )
+    )
+
+    charset = page_data.get("charset", "")
+    content_type = page_data.get("content_type", "")
+    charset_ok = bool(charset) or "charset=" in content_type.lower()
+    content_type_ok = "text/html" in content_type.lower()
+    charset_status = "OK" if charset_ok and content_type_ok else "△"
+    charset_result = (
+        f"Content-Type: {content_type or '取得できず'} / "
+        f"charset: {charset or 'HTML宣言なし'}"
+    )
+
+    checks.append(
+        _row(
+            20,
+            "その他",
+            "Charset / Content-Type",
+            charset_status,
+            charset_result,
+            "HTMLレスポンスのMIME typeと文字コード宣言を確認します。",
+            "Content-Typeをtext/htmlとして返し、HTTPヘッダーまたはmeta charsetでUTF-8等の文字コードを明示してください。",
         )
     )
 
@@ -580,7 +751,7 @@ def build_checks(
     )
     checks.append(
         _row(
-            16,
+            21,
             "Lighthouse",
             "SEO Score",
             seo_status,
@@ -606,7 +777,7 @@ def build_checks(
     )
     checks.append(
         _row(
-            17,
+            22,
             "Performance",
             "Performance Score",
             perf_status,
@@ -632,7 +803,7 @@ def build_checks(
 
     checks.append(
         _row(
-            18,
+            23,
             "Performance",
             "LCP",
             lcp_status,
@@ -658,7 +829,7 @@ def build_checks(
 
     checks.append(
         _row(
-            19,
+            24,
             "Performance",
             "CLS",
             cls_status,
@@ -684,7 +855,7 @@ def build_checks(
 
     checks.append(
         _row(
-            20,
+            25,
             "Performance",
             "TBT",
             tbt_status,
@@ -696,11 +867,11 @@ def build_checks(
 
     if lighthouse_status == "skipped":
         for row in checks:
-            if row["No"] >= 16 and row["Status"] == "—":
+            if row["No"] >= 21 and row["Status"] == "—":
                 row["Action"] = "LighthouseオプションOFFのため判定対象外"
     elif lighthouse_status == "failed":
         for row in checks:
-            if row["No"] >= 16 and row["Status"] == "—":
+            if row["No"] >= 21 and row["Status"] == "—":
                 row["Action"] = "Lighthouse計測に失敗したため未判定。必要に応じて再実行してください。"
 
     return checks
