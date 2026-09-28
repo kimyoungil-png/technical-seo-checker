@@ -3,7 +3,7 @@ import streamlit as st
 
 from ai_advisor import DEFAULT_MODEL, generate_ai_advice
 from page_inspector import inspect_page
-from report_builder import build_checks, build_copy_report, counts, markdown_table
+from report_builder import build_checks, build_copy_report, counts, html_table
 from siteone_runner import run_siteone
 from unlighthouse_runner import run_unlighthouse
 
@@ -116,7 +116,10 @@ if st.button("Technical SEOチェック開始", type="primary"):
         )
 
     st.subheader("20項目チェック")
-    st.markdown(markdown_table(checks))
+    st.markdown(
+        html_table(checks),
+        unsafe_allow_html=True,
+    )
 
     ai_text = ""
 
