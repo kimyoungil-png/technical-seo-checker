@@ -14,8 +14,10 @@ def _call_gemini(client, model, system_prompt, user_prompt):
         contents=user_prompt,
         config=types.GenerateContentConfig(
             system_instruction=system_prompt,
-            temperature=0.2,
-            max_output_tokens=2200,
+            thinking_config=types.ThinkingConfig(
+                thinking_level="low"
+            ),
+            max_output_tokens=6000,
         ),
     )
 
