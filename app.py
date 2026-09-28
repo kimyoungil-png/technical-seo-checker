@@ -6,6 +6,7 @@ from page_inspector import inspect_page
 from report_builder import build_checks, build_copy_report, counts, html_table, tsv_table
 from siteone_runner import run_siteone
 from unlighthouse_runner import run_unlighthouse
+from ppt_report import build_ppt_report
 
 
 st.set_page_config(
@@ -206,6 +207,38 @@ if st.button("Technical SEOチェック開始", type="primary"):
     )
 
     excel_paste = tsv_table(checks)
+
+    st.subheader("PowerPoint出力")
+    st.write(
+        "モバイルのファーストビュー画像とチェック結果を1枚のPPTにまとめます。"
+    )
+
+    if st.button("PPTを生成"):
+        with st.spinner(
+            "モバイル画面を取得してPowerPointを生成中..."
+        ):
+            try:
+                ppt_result = build_ppt_report(
+                    url=url,
+                    checks=checks,
+                )
+
+                st.download_button(
+                    "PowerPointをダウンロード",
+                    data=ppt_result["bytes"],
+                    file_name=ppt_result["filename"],
+                    mime=(
+                        "application/vnd.openxmlformats-officedocument."
+                        "presentationml.presentation"
+                    ),
+                )
+
+            except Exception as e:
+                st.error(
+                    "PowerPointの生成に失敗しました。"
+                )
+                with st.expander("エラー詳細"):
+                    st.code(str(e))
 
     st.subheader("Excel貼り付け用")
     st.write(
