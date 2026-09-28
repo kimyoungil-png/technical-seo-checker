@@ -2,7 +2,7 @@ import urllib.error
 import urllib.request
 import json
 import re
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import unquote, urljoin, urlsplit
 from bs4 import BeautifulSoup
 
 
@@ -160,17 +160,66 @@ def inspect_page(url: str):
     ]
 
     def image_src(img):
-        src = (
-            img.get("src")
-            or img.get("data-src")
-            or img.get("data-lazy-src")
-            or img.get("srcset")
-            or ""
+        attrs = (
+            "src",
+            "data-src",
+            "data-lazy-src",
+            "data-original",
+            "data-image",
+            "data-srcset",
+            "srcset",
+            "data-desktop-src",
+            "data-mobile-src",
+            "data-pc-src",
+            "data-img-src",
         )
-        if src:
-            src = str(src).split(",")[0].strip().split(" ")[0]
-            return urljoin(final_url, src)
+
+        for attr in attrs:
+            value = img.get(attr)
+            if not value:
+                continue
+
+            if isinstance(value, (list, tuple)):
+                value = value[0] if value else ""
+
+            value = str(value).strip()
+            if not value:
+                continue
+
+            value = value.split(",")[0].strip().split(" ")[0]
+
+            if value.startswith("//"):
+                value = "https:" + value
+
+            if value.startswith("data:"):
+                continue
+
+            return urljoin(final_url, value)
+
+        picture = img.find_parent("picture")
+        if picture is not None:
+            for source in picture.find_all("source"):
+                value = (
+                    source.get("srcset")
+                    or source.get("data-srcset")
+                    or source.get("data-src")
+                    or ""
+                )
+                if value:
+                    value = str(value).split(",")[0].strip().split(" ")[0]
+                    if value.startswith("//"):
+                        value = "https:" + value
+                    return urljoin(final_url, value)
+
         return ""
+
+    def image_filename(img):
+        src = image_src(img)
+        if not src:
+            return ""
+
+        path = unquote(urlsplit(src).path)
+        return path.rstrip("/").split("/")[-1]
 
     def has_accessible_parent_label(img):
         parent = img.find_parent(["a", "button"])
@@ -232,7 +281,11 @@ def inspect_page(url: str):
     missing_alt_examples = []
     for img in missing_alt_priority[:5]:
         missing_alt_examples.append({
-            "src": image_src(img) or "src取得できず",
+            "src": image_src(img),
+            "filename": (
+                image_filename(img)
+                or "画像ファイル名を取得できず"
+            ),
             "class": " ".join(img.get("class", [])),
         })
 
