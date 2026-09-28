@@ -1,7 +1,7 @@
 import os
 import streamlit as st
 
-from ai_advisor import DEFAULT_MODEL, generate_ai_advice
+from ai_advisor import DEFAULT_MODEL, build_fallback_summary, generate_ai_advice
 from page_inspector import inspect_page
 from report_builder import build_checks, build_copy_report, counts, html_table, tsv_table
 from siteone_runner import run_siteone
@@ -144,6 +144,7 @@ def run_audit(target_url, use_lighthouse, use_ai):
     ai_text = ""
     ai_model = ""
     ai_error = ""
+    ai_fallback_summary = False
     proofreading = []
 
     if use_ai:
@@ -171,9 +172,11 @@ def run_audit(target_url, use_lighthouse, use_ai):
                     ai_model = advice_result.get("model", model)
                 except Exception as e:
                     ai_error = str(e)
+                    ai_text = build_fallback_summary(checks)
+                    ai_fallback_summary = True
                     st.warning(
-                        "Geminiまとめを取得できませんでした。"
-                        f"{check_count}項目チェック結果はそのまま利用できます。"
+                        "Gemini APIが一時的に利用できないため、"
+                        "チェック結果から自動生成したまとめを表示します。"
                     )
 
     page_data_for_ui = dict(page_data)
@@ -200,6 +203,7 @@ def run_audit(target_url, use_lighthouse, use_ai):
         "ai_text": ai_text,
         "ai_model": ai_model,
         "ai_error": ai_error,
+        "ai_fallback_summary": ai_fallback_summary,
         "proofreading": proofreading,
         "body_text_char_count": body_text_char_count,
         "body_text_checked_chars": len(body_text_for_ai),
@@ -338,13 +342,16 @@ def render_audit_result(audit, index):
         st.subheader("まとめ")
         if ai_text:
             st.markdown(ai_text)
-            if audit.get("ai_model"):
+            if audit.get("ai_fallback_summary"):
+                st.caption("Gemini APIが混雑していたため、チェック結果から自動生成した代替まとめです。")
+            elif audit.get("ai_model"):
                 st.caption(f"Gemini model: {audit['ai_model']}")
-        else:
-            st.caption("まとめは取得できませんでした。")
+
             if audit.get("ai_error"):
                 with st.expander("Geminiエラー詳細", expanded=False):
                     st.code(audit["ai_error"])
+        else:
+            st.caption("まとめは取得できませんでした。")
 
         st.subheader("本文の誤字脱字チェック")
         st.caption("SEO判定には含めません。明確な誤字・脱字・変換ミスだけを確認します。")
