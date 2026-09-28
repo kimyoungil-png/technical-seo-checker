@@ -6,7 +6,7 @@ from page_inspector import inspect_page
 from report_builder import build_checks, build_copy_report, counts, html_table, tsv_table
 from siteone_runner import run_siteone
 from unlighthouse_runner import run_unlighthouse
-from ppt_report import build_ppt_report, build_ppt_report_from_template
+from ppt_report import build_ppt_report, build_ppt_report_from_default_template
 
 
 st.set_page_config(
@@ -253,17 +253,7 @@ if audit:
 
     st.subheader("PowerPoint出力")
     st.write(
-        "テンプレートPPTを使う場合は、下にテンプレートをアップロードしてください。"
-        "未指定の場合は簡易レイアウトで生成します。"
-    )
-
-    ppt_template = st.file_uploader(
-        "PowerPointテンプレート（任意）",
-        type=["pptx"],
-        help=(
-            "Technical SEO Checker sample1.pptxを指定すると、"
-            "そのファイルのデザインを保ったまま必要箇所だけ差し替えます。"
-        ),
+        "サーバー側テンプレートを使って、現在のチェック結果をPowerPointに出力します。"
     )
 
     if st.button("PPTを生成", key="generate_ppt_report"):
@@ -272,14 +262,18 @@ if audit:
 
         with st.spinner("モバイル画面を取得してPowerPointを生成中..."):
             try:
-                if ppt_template is not None:
-                    ppt_result = build_ppt_report_from_template(
+                try:
+                    ppt_result = build_ppt_report_from_default_template(
                         url=checked_url,
                         checks=checks,
                         summary=ai_text,
-                        template_bytes=ppt_template.getvalue(),
                     )
-                else:
+                except RuntimeError as template_error:
+                    st.warning(
+                        "サーバー側テンプレートを読み込めなかったため、"
+                        "簡易レイアウトでPowerPointを生成します。"
+                    )
+                    st.session_state["ppt_template_warning"] = str(template_error)
                     ppt_result = build_ppt_report(
                         url=checked_url,
                         checks=checks,
@@ -307,6 +301,11 @@ if audit:
             ),
             key="download_ppt_report",
         )
+
+    ppt_template_warning = st.session_state.get("ppt_template_warning")
+    if ppt_template_warning:
+        with st.expander("テンプレート読み込みメモ"):
+            st.code(ppt_template_warning)
 
     ppt_error = st.session_state.get("ppt_error")
     if ppt_error:
