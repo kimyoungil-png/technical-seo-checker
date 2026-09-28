@@ -21,11 +21,11 @@ st.set_page_config(
 st.image("ASCENTSEOLOGO.png", width=360)
 st.title("Technical SEO Checker")
 st.caption("Ascent SEO Team")
-# deploy-refresh-20260928
+# deploy-refresh-20260928-2
 
 st.write(
-    "新規公開・更新した1ページを対象に、Technical SEOを20項目でチェックし、"
-    "LighthouseをONにした場合のみPerformance 3項目を追加します。"
+    "新規公開・更新したページを対象にTechnical SEOをチェックし、"
+    "チェック完了後にPowerPointレポートまで自動生成します。"
 )
 
 urls_text = st.text_area(
@@ -38,20 +38,14 @@ urls_text = st.text_area(
     height=140,
 )
 
-urls = [
-    line.strip()
-    for line in urls_text.splitlines()
-    if line.strip()
-]
-
-url = urls[0] if urls else ""
+urls = [line.strip() for line in urls_text.splitlines() if line.strip()]
 
 run_lighthouse = st.checkbox(
     "Lighthouse（Performance計測）も実行する",
     value=False,
     help=(
-        "Lighthouseはブラウザ計測を伴うため、通常チェックより時間がかかり、"
-        "一時的に失敗することがあります。必要なときだけONにしてください。"
+        "Lighthouseはブラウザ計測を伴うため時間がかかります。"
+        "複数URLでは利用できません。"
     ),
     key="input_run_lighthouse",
 )
@@ -60,6 +54,16 @@ generate_ai = st.checkbox(
     "Geminiによるまとめを追加する",
     value=True,
     key="input_generate_ai",
+)
+
+ppt_template = st.file_uploader(
+    "PowerPointテンプレート（任意）",
+    type=["pptx"],
+    help=(
+        "指定したPPTのデザインを維持し、各URLの結果だけを差し替えます。"
+        "未指定の場合はサーバー側テンプレートを使用します。"
+    ),
+    key="ppt_template_upload",
 )
 
 
@@ -82,10 +86,10 @@ def run_audit(target_url, use_lighthouse, use_ai):
 
     total_steps = 3 if use_lighthouse else 2
 
-    with st.spinner(f"1/{total_steps} ページ情報を確認中..."):
+    with st.spinner(f"1/{total_steps} ページ情報を確認中... {target_url}"):
         page_data = inspect_page(target_url)
 
-    with st.spinner(f"2/{total_steps} SiteOne CrawlerでTechnical SEOを確認中..."):
+    with st.spinner(f"2/{total_steps} SiteOne CrawlerでTechnical SEOを確認中... {target_url}"):
         try:
             siteone_result = run_siteone(target_url)
             siteone_text = (
@@ -99,11 +103,9 @@ def run_audit(target_url, use_lighthouse, use_ai):
 
     if use_lighthouse:
         lighthouse_status = "failed"
-
-        with st.spinner("3/3 LighthouseでPerformanceを確認中..."):
+        with st.spinner(f"3/3 LighthouseでPerformanceを確認中... {target_url}"):
             try:
                 unlighthouse_result = run_unlighthouse(target_url)
-
                 if unlighthouse_result.get("returncode") == 0:
                     metrics = unlighthouse_result.get("metrics") or {}
                     lighthouse_status = "success"
@@ -112,17 +114,10 @@ def run_audit(target_url, use_lighthouse, use_ai):
                         unlighthouse_result.get("stderr")
                         or "Lighthouse API error"
                     )
-                    st.warning(
-                        "Lighthouse計測を完了できませんでした。"
-                        "通常のTechnical SEOチェック結果はそのまま利用できます。"
-                    )
-
+                    st.warning("Lighthouse計測を完了できませんでした。")
             except Exception as e:
                 lighthouse_error = str(e)
-                st.warning(
-                    "Lighthouse計測を完了できませんでした。"
-                    "通常のTechnical SEOチェック結果はそのまま利用できます。"
-                )
+                st.warning("Lighthouse計測を完了できませんでした。")
     else:
         st.caption("LighthouseはオプションOFFのため実行していません。")
 
@@ -144,11 +139,11 @@ def run_audit(target_url, use_lighthouse, use_ai):
 
         if not api_key:
             st.warning(
-                "Geminiレビューを利用するには、Streamlit Secretsに"
+                "Geminiまとめを利用するには、Streamlit Secretsに"
                 "GEMINI_API_KEYを設定してください。"
             )
         else:
-            with st.spinner("チェック結果を簡潔にまとめています..."):
+            with st.spinner(f"チェック結果を簡潔にまとめています... {target_url}"):
                 try:
                     advice_result = generate_ai_advice(
                         url=target_url,
@@ -158,13 +153,11 @@ def run_audit(target_url, use_lighthouse, use_ai):
                         model=model,
                         checks=checks,
                     )
-
                     ai_text = advice_result.get("text", "")
                     ai_model = advice_result.get("model", model)
-
                 except Exception as e:
                     st.warning(
-                        "Geminiレビューを取得できませんでした。"
+                        "Geminiまとめを取得できませんでした。"
                         f"{check_count}項目チェック結果はそのまま利用できます。"
                     )
                     with st.expander("エラー詳細"):
@@ -186,6 +179,27 @@ def run_audit(target_url, use_lighthouse, use_ai):
     }
 
 
+def build_ppt_for_audits(audits, uploaded_template=None):
+    report_payload = [
+        {
+            "url": audit["url"],
+            "checks": audit["checks"],
+            "summary": audit.get("ai_text", ""),
+        }
+        for audit in audits
+    ]
+
+    if uploaded_template is not None:
+        return build_multi_ppt_report_from_template(
+            reports=report_payload,
+            template_bytes=uploaded_template.getvalue(),
+        )
+
+    return build_multi_ppt_report_from_default_template(
+        reports=report_payload,
+    )
+
+
 if st.button("Technical SEOチェック開始", type="primary"):
     if len(urls) > 5:
         st.error("URLは最大5件まで入力できます。")
@@ -203,36 +217,21 @@ if st.button("Technical SEOチェック開始", type="primary"):
         st.stop()
 
     invalid_urls = [
-        item
-        for item in urls
-        if not item.startswith(("http://", "https://"))
+        item for item in urls if not item.startswith(("http://", "https://"))
     ]
-
     if invalid_urls:
-        st.warning(
-            "すべてのURLを http:// または https:// から始めてください。"
-        )
+        st.warning("すべてのURLを http:// または https:// から始めてください。")
         st.stop()
 
-    for key in (
-        "ppt_report",
-        "ppt_error",
-        "ppt_template_warning",
-    ):
+    for key in ("ppt_report", "ppt_error", "audit_results", "audit_errors"):
         st.session_state.pop(key, None)
 
     audit_results = []
     audit_errors = []
-    progress = st.progress(
-        0,
-        text=f"0/{len(urls)} URLをチェック中...",
-    )
+    progress = st.progress(0, text=f"0/{len(urls)} URLをチェック中...")
 
     for index, target_url in enumerate(urls, start=1):
-        st.info(
-            f"[{index}/{len(urls)}] チェック対象: {target_url}"
-        )
-
+        st.info(f"[{index}/{len(urls)}] チェック対象: {target_url}")
         try:
             audit_results.append(
                 run_audit(
@@ -242,22 +241,14 @@ if st.button("Technical SEOチェック開始", type="primary"):
                 )
             )
         except Exception as e:
-            audit_errors.append(
-                {
-                    "url": target_url,
-                    "error": str(e),
-                }
-            )
+            audit_errors.append({"url": target_url, "error": str(e)})
             st.warning(
-                f"{target_url} のチェックを完了できませんでした。"
-                "残りのURLは続けて処理します。"
+                f"{target_url} のチェックを完了できませんでした。残りのURLは続けて処理します。"
             )
 
         progress.progress(
             index / len(urls),
-            text=(
-                f"{index}/{len(urls)} URLのチェックが完了しました。"
-            ),
+            text=f"{index}/{len(urls)} URLのチェックが完了しました。",
         )
 
     st.session_state["audit_results"] = audit_results
@@ -265,6 +256,18 @@ if st.button("Technical SEOチェック開始", type="primary"):
 
     if not audit_results:
         st.error("チェックを完了できたURLがありませんでした。")
+        st.stop()
+
+    with st.spinner(f"{len(audit_results)}ページのPowerPointを自動生成中..."):
+        try:
+            ppt_result = build_ppt_for_audits(audit_results, ppt_template)
+            st.session_state["ppt_report"] = ppt_result
+            st.success(f"{len(audit_results)}ページのPowerPointを生成しました。")
+            for warning in ppt_result.get("warnings", []):
+                st.warning(warning)
+        except Exception as e:
+            st.session_state["ppt_error"] = str(e)
+            st.error("PowerPointの自動生成に失敗しました。")
 
 
 def render_audit_result(audit, index):
@@ -278,11 +281,7 @@ def render_audit_result(audit, index):
     lighthouse_error = audit.get("lighthouse_error", "")
     checked_url = audit["url"]
 
-    copy_report = build_copy_report(
-        url=checked_url,
-        checks=checks,
-        ai_text=ai_text,
-    )
+    copy_report = build_copy_report(url=checked_url, checks=checks, ai_text=ai_text)
     excel_paste = tsv_table(checks)
 
     st.caption(f"対象URL: {checked_url}")
@@ -295,10 +294,7 @@ def render_audit_result(audit, index):
     with col3:
         st.metric("NG 要修正", c["NG"])
     with col4:
-        st.metric(
-            "— 未実施 / 未取得",
-            c.get("—", 0),
-        )
+        st.metric("— 未実施 / 未取得", c.get("—", 0))
 
     if c["NG"] == 0:
         st.success(
@@ -307,31 +303,24 @@ def render_audit_result(audit, index):
         )
     else:
         st.error(
-            f"NGが{c['NG']}件あります。"
-            "公開・更新後の優先修正対象として確認してください。"
+            f"NGが{c['NG']}件あります。公開・更新後の優先修正対象として確認してください。"
         )
 
-    st.subheader(f"{check_count}項目チェック")
-    st.markdown(
-        html_table(checks),
-        unsafe_allow_html=True,
-    )
+    with st.expander(f"{check_count}項目チェック", expanded=False):
+        st.markdown(html_table(checks), unsafe_allow_html=True)
 
     if audit.get("generate_ai"):
         st.subheader("まとめ")
         if ai_text:
             st.markdown(ai_text)
             if audit.get("ai_model"):
-                st.caption(
-                    f"Gemini model: {audit['ai_model']}"
-                )
+                st.caption(f"Gemini model: {audit['ai_model']}")
         else:
             st.caption("まとめは取得できませんでした。")
 
     with st.expander("Excel貼り付け用", expanded=False):
         st.write(
-            "下記をすべてコピーしてExcelのA1セルに貼り付けると、"
-            "列ごとのテーブルとして展開されます。"
+            "下記をすべてコピーしてExcelのA1セルに貼り付けると、列ごとのテーブルとして展開されます。"
         )
         st.text_area(
             "Excel貼り付け用（タブ区切り）",
@@ -340,7 +329,6 @@ def render_audit_result(audit, index):
             label_visibility="collapsed",
             key=f"excel_text_{index}",
         )
-
         st.download_button(
             "TSVを保存",
             data="\ufeff" + excel_paste,
@@ -351,7 +339,6 @@ def render_audit_result(audit, index):
 
     with st.expander("共有用テキスト", expanded=False):
         st.code(copy_report, language="markdown")
-
         st.download_button(
             "Markdownレポートを保存",
             data=copy_report,
@@ -364,14 +351,12 @@ def render_audit_result(audit, index):
         if audit.get("run_lighthouse"):
             st.markdown("#### Lighthouse metrics")
             st.json(metrics)
-
             if lighthouse_error:
                 st.markdown("#### Lighthouse error")
                 st.code(lighthouse_error)
 
         st.markdown("#### Page inspection")
         st.json(page_data)
-
         st.markdown("#### SiteOne raw report")
         st.text(siteone_text or "No data")
 
@@ -381,117 +366,6 @@ audits = st.session_state.get("audit_results", [])
 if audits:
     st.divider()
     st.header("Technical SEO Check Report")
-
-    if len(audits) == 1:
-        render_audit_result(
-            audits[0],
-            1,
-        )
-    else:
-        tabs = st.tabs(
-            [
-                f"{index}. {audit['url']}"
-                for index, audit in enumerate(
-                    audits,
-                    start=1,
-                )
-            ]
-        )
-
-        for index, (tab, audit) in enumerate(
-            zip(tabs, audits),
-            start=1,
-        ):
-            with tab:
-                render_audit_result(
-                    audit,
-                    index,
-                )
-
-    audit_errors = st.session_state.get(
-        "audit_errors",
-        [],
-    )
-
-    if audit_errors:
-        with st.expander(
-            f"チェック失敗 {len(audit_errors)}件",
-            expanded=False,
-        ):
-            for error in audit_errors:
-                st.write(
-                    f"{error['url']}: {error['error']}"
-                )
-
-    st.divider()
-    st.subheader("PowerPoint出力")
-    st.write(
-        f"チェックが完了した{len(audits)}URLを、"
-        f"{len(audits)}ページのPowerPointにまとめます。"
-    )
-
-    ppt_template = st.file_uploader(
-        "PowerPointテンプレート",
-        type=["pptx"],
-        help=(
-            "指定したPPTのデザインを維持し、"
-            "各URLの結果だけを差し替えて複数ページで出力します。"
-        ),
-        key="ppt_template_upload",
-    )
-
-    if st.button(
-        "PPTを生成",
-        key="generate_ppt_report",
-    ):
-        st.session_state.pop("ppt_report", None)
-        st.session_state.pop("ppt_error", None)
-
-        report_payload = [
-            {
-                "url": audit["url"],
-                "checks": audit["checks"],
-                "summary": audit.get("ai_text", ""),
-            }
-            for audit in audits
-        ]
-
-        with st.spinner(
-            f"{len(audits)}ページのPowerPointを生成中..."
-        ):
-            try:
-                if ppt_template is not None:
-                    ppt_result = build_multi_ppt_report_from_template(
-                        reports=report_payload,
-                        template_bytes=ppt_template.getvalue(),
-                    )
-                else:
-                    try:
-                        ppt_result = build_multi_ppt_report_from_default_template(
-                            reports=report_payload,
-                        )
-                    except RuntimeError:
-                        raise RuntimeError(
-                            "PowerPointテンプレートが設定されていません。"
-                            "上の「PowerPointテンプレート」から、"
-                            "Technical SEO Checker sample1.pptx を"
-                            "アップロードしてください。"
-                        )
-
-                st.session_state["ppt_report"] = ppt_result
-                st.success(
-                    f"{len(audits)}ページのPowerPointを生成しました。"
-                )
-
-                for warning in ppt_result.get(
-                    "warnings",
-                    [],
-                ):
-                    st.warning(warning)
-
-            except Exception as e:
-                st.session_state["ppt_error"] = str(e)
-                st.error("PowerPointの生成に失敗しました。")
 
     ppt_result = st.session_state.get("ppt_report")
     if ppt_result:
@@ -503,13 +377,38 @@ if audits:
                 "application/vnd.openxmlformats-officedocument."
                 "presentationml.presentation"
             ),
-            key="download_ppt_report",
+            key="download_ppt_report_top",
         )
 
     ppt_error = st.session_state.get("ppt_error")
     if ppt_error:
-        with st.expander(
-            "PowerPoint生成エラー詳細",
-            expanded=True,
-        ):
+        with st.expander("PowerPoint生成エラー詳細", expanded=True):
             st.code(ppt_error)
+
+    if len(audits) == 1:
+        render_audit_result(audits[0], 1)
+    else:
+        tabs = st.tabs(
+            [f"{index}. {audit['url']}" for index, audit in enumerate(audits, start=1)]
+        )
+        for index, (tab, audit) in enumerate(zip(tabs, audits), start=1):
+            with tab:
+                render_audit_result(audit, index)
+
+    audit_errors = st.session_state.get("audit_errors", [])
+    if audit_errors:
+        with st.expander(f"チェック失敗 {len(audit_errors)}件", expanded=False):
+            for error in audit_errors:
+                st.write(f"{error['url']}: {error['error']}")
+
+    st.subheader("PowerPoint再生成")
+    st.write("テンプレートを差し替えた場合などは、ここから再生成できます。")
+    if st.button("PPTを再生成", key="regenerate_ppt_report"):
+        with st.spinner(f"{len(audits)}ページのPowerPointを再生成中..."):
+            try:
+                ppt_result = build_ppt_for_audits(audits, ppt_template)
+                st.session_state["ppt_report"] = ppt_result
+                st.success(f"{len(audits)}ページのPowerPointを再生成しました。")
+            except Exception as e:
+                st.session_state["ppt_error"] = str(e)
+                st.error("PowerPointの再生成に失敗しました。")
