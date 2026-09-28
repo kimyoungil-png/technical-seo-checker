@@ -1,5 +1,5 @@
 import re
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 
 def _normalize_url(url):
@@ -79,6 +79,36 @@ def _status_from_summary(item):
 
     return None
 
+
+
+def _broken_internal_links(siteone_data, page_url, limit=3):
+    rows = (
+        siteone_data.get("tables", {})
+        .get("404", {})
+        .get("rows", [])
+    )
+
+    page_host = urlsplit(page_url).netloc.lower()
+    broken_urls = []
+
+    for row in rows:
+        target = (row.get("url") or "").strip()
+        if not target:
+            continue
+
+        absolute = urljoin(page_url, target)
+        target_host = urlsplit(absolute).netloc.lower()
+
+        if target_host != page_host:
+            continue
+
+        if absolute not in broken_urls:
+            broken_urls.append(absolute)
+
+    return {
+        "count": len(broken_urls),
+        "examples": broken_urls[:limit],
+    }
 
 
 def _heading_issue_examples(siteone_data, limit=3):
@@ -178,11 +208,9 @@ TECHNICAL_MEANINGS = {
     "Hreflang": "link rel=alternate hreflangの設定を確認します。言語・地域別URLがあるサイトで検索エンジンへ対応関係を伝える国際SEOシグナルです。",
     "Open Graph": "og:title、og:description、og:image、og:url等のOpen Graphメタデータを確認します。SNS共有時の表示品質とURL整合性を確認します。",
     "Twitter Card": "twitter:card、twitter:title、twitter:description、twitter:image等を確認し、X等で共有された際のカード情報を検証します。",
-    "Internal Links": "対象ページ内の内部リンク数とクローラビリティを確認します。通常のhrefを持つ内部リンクはページ発見・サイト構造理解に利用されます。",
+    "Internal Links": "対象ページ内の内部リンクとリンク切れ（404）を確認します。javascript:等のリンクは参考情報として件数のみ表示し、判定には使用しません。",
     "Charset / Content-Type": "HTTP Content-TypeとHTML charset宣言を確認します。文字コードの不整合はHTML解析・文字化け・メタ情報解釈に影響する可能性があります。",
     "HTML Validity": "DOM構造上の重大なHTML不整合を確認します。壊れたマークアップはレンダリング、アクセシビリティ、クローラ解釈に影響する可能性があります。",
-    "SEO Score": "Lighthouse SEOカテゴリの監査スコアです。インデックス可否、リンク、メタ情報、モバイル対応など基礎実装をラボ環境で検査します。順位スコアではありません。",
-    "Performance Score": "LighthouseのPerformanceカテゴリ総合スコアです。FCP、LCP、TBT等を基にラボ環境でレンダリング性能を評価します。",
     "LCP": "Largest Contentful Paint。viewport内の主要コンテンツが描画されるまでの時間で、Core Web Vitalsの主要指標です。ラボ値では2.5秒以下を良好の目安とします。",
     "CLS": "Cumulative Layout Shift。ページ表示中の予期しないレイアウトシフト量を示すCore Web Vitals指標で、0.1以下を良好の目安とします。",
     "TBT": "Total Blocking Time。FCP以降にメインスレッドを50ms超ブロックしたLong Taskの超過時間合計で、JavaScript実行負荷の診断に使います。",
@@ -774,11 +802,27 @@ def build_checks(
 
     internal_count = page_data.get("internal_link_count", 0)
     invalid_count = page_data.get("invalid_link_count", 0)
-    internal_status = "OK" if internal_count > 0 and invalid_count == 0 else "△"
+
+    broken_internal = _broken_internal_links(
+        siteone_data,
+        page_data.get("final_url") or url,
+        limit=3,
+    )
+    broken_count = broken_internal["count"]
+
+    internal_status = "△" if broken_count > 0 else "OK"
+
     internal_result = (
         f"内部リンク {internal_count}件 / "
-        f"javascript等の非クローラブルリンク {invalid_count}件"
+        f"リンク切れ(404) {broken_count}件 / "
+        f"javascript等 {invalid_count}件（参考）"
     )
+
+    if broken_internal["examples"]:
+        internal_result += (
+            " / 例: "
+            + " | ".join(broken_internal["examples"])
+        )
 
     checks.append(
         _row(
@@ -787,8 +831,8 @@ def build_checks(
             "Internal Links",
             internal_status,
             internal_result,
-            "内部リンクの基本的なクローラビリティを確認します。",
-            "主要導線は通常の<a href>で実装してください。javascript:リンクや空hrefがある場合は、検索エンジンが辿れるURLリンクへ変更してください。",
+            "内部リンクとリンク切れを確認します。",
+            "404の内部リンクがある場合はリンク先URLを修正・差し替え・削除してください。javascript:等のリンクはこの判定には含めません。",
         )
     )
 
@@ -824,58 +868,6 @@ def build_checks(
     else:
         lighthouse_missing_result = "取得できず"
 
-    seo_score = metrics.get("seo")
-    seo_status = (
-        "—"
-        if seo_score is None
-        else (
-            "OK"
-            if isinstance(seo_score, (int, float)) and seo_score >= 90
-            else (
-                "△"
-                if isinstance(seo_score, (int, float)) and seo_score >= 80
-                else "NG"
-            )
-        )
-    )
-    checks.append(
-        _row(
-            21,
-            "Lighthouse",
-            "SEO Score",
-            seo_status,
-            str(seo_score) if seo_score is not None else lighthouse_missing_result,
-            "Lighthouseが確認できる基本的なSEO実装の総合スコアです。検索順位そのものではありません。",
-            "Lighthouse SEO監査の失敗項目を確認し、クロール、メタ情報、リンク、モバイル対応などの基本実装を修正してください。",
-        )
-    )
-
-    perf = metrics.get("performance")
-    perf_status = (
-        "—"
-        if perf is None
-        else (
-            "OK"
-            if isinstance(perf, (int, float)) and perf >= 90
-            else (
-                "△"
-                if isinstance(perf, (int, float)) and perf >= 50
-                else "NG"
-            )
-        )
-    )
-    checks.append(
-        _row(
-            22,
-            "Performance",
-            "Performance Score",
-            perf_status,
-            str(perf) if perf is not None else lighthouse_missing_result,
-            "Lighthouseのラボ環境で、表示速度やメインスレッド負荷を総合評価したスコアです。",
-            "LCP、TBTなど低下要因を優先し、画像、JavaScript、CSS、サーバー応答を改善してください。",
-        )
-    )
-
     lcp_ms = metrics.get("lcpMs")
     if isinstance(lcp_ms, (int, float)):
         lcp_status = (
@@ -892,7 +884,7 @@ def build_checks(
 
     checks.append(
         _row(
-            23,
+            21,
             "Performance",
             "LCP",
             lcp_status,
@@ -918,7 +910,7 @@ def build_checks(
 
     checks.append(
         _row(
-            24,
+            22,
             "Performance",
             "CLS",
             cls_status,
@@ -944,7 +936,7 @@ def build_checks(
 
     checks.append(
         _row(
-            25,
+            23,
             "Performance",
             "TBT",
             tbt_status,
