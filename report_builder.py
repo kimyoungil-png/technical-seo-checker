@@ -545,11 +545,13 @@ def build_checks(
 
     if page_data.get("ok"):
         priority_missing = page_data.get("images_missing_alt_priority", 0)
+        content_image_count = page_data.get("content_image_count", 0)
 
         alt_status = "OK" if priority_missing == 0 else "△"
 
         alt_result = (
-            f"コンテンツ画像候補のalt未設定 {priority_missing}件"
+            f"alt未設定 {priority_missing}件 / "
+            f"コンテンツ画像 {content_image_count}個"
         )
 
         alt_examples = page_data.get(
@@ -722,24 +724,67 @@ def build_checks(
         )
     )
 
-    html_item = _summary_item(
-        siteone_data,
-        "pages-with-invalid-html",
-    )
-    html_status = _status_from_summary(html_item) or "△"
+    duplicate_ids = page_data.get("duplicate_id_examples", [])
+    broken_aria = page_data.get("broken_aria_references", [])
+
+    if page_data.get("ok"):
+        html_issues = []
+
+        for issue in duplicate_ids[:3]:
+            html_issues.append(
+                f"duplicate id: #{issue.get('id')} "
+                f"（{issue.get('count')}回）"
+            )
+
+        for issue in broken_aria[:3]:
+            html_issues.append(
+                f"broken ARIA: <{issue.get('element')}> "
+                f"{issue.get('attribute')}=\"{issue.get('missing_id')}\" "
+                f"（参照先idなし）"
+            )
+
+        if html_issues:
+            html_status = "△"
+            html_result = (
+                f"HTML構造上の要確認 {len(duplicate_ids) + len(broken_aria)}件"
+                f" / 例: {' | '.join(html_issues[:3])}"
+            )
+        else:
+            html_item = _summary_item(
+                siteone_data,
+                "pages-with-invalid-html",
+            )
+
+            if html_item and _status_from_summary(html_item) in ("△", "NG"):
+                html_status = _status_from_summary(html_item)
+                html_result = (
+                    html_item.get("text", "HTML構造エラーを検出")
+                    + " / 詳細箇所はSiteOne側で特定できず"
+                )
+            else:
+                html_status = "OK"
+                html_result = "duplicate id / broken ARIA reference なし"
+    else:
+        html_item = _summary_item(
+            siteone_data,
+            "pages-with-invalid-html",
+        )
+        html_status = _status_from_summary(html_item) or "—"
+        html_result = (
+            html_item.get("text", "判定情報なし")
+            if html_item
+            else "判定情報なし"
+        )
+
     checks.append(
         _row(
             14,
             "HTML",
             "HTML Validity",
             html_status,
-            (
-                html_item.get("text", "")
-                if html_item
-                else "判定情報なし"
-            ),
+            html_result,
             "重大なHTML構造エラーがなく、ブラウザやクローラが安定して解釈できるかを確認します。",
-            "不正なタグ構造、閉じタグ、入れ子、重複属性などを修正してください。",
+            "duplicate idはid値が一意になるよう修正し、broken ARIA referenceはaria-*属性の参照先idが実在するよう修正してください。",
         )
     )
 
