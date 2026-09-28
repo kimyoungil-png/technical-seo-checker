@@ -36,10 +36,15 @@ urls_text = st.text_area(
         "https://www.example.com/page-2/"
     ),
     key="input_urls",
-    height=140,
+    height=220,
 )
 
-urls = [line.strip() for line in urls_text.splitlines() if line.strip()]
+entered_urls = [line.strip() for line in urls_text.splitlines() if line.strip()]
+urls = list(dict.fromkeys(entered_urls))
+duplicate_url_count = len(entered_urls) - len(urls)
+
+if duplicate_url_count:
+    st.caption(f"重複URL {duplicate_url_count}件は1回だけチェックします。")
 
 run_lighthouse = st.checkbox(
     "Lighthouse（Performance計測）も実行する",
