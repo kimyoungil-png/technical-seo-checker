@@ -287,27 +287,12 @@ if st.button(
                         )
                     )
 
-                col1, col2 = (
-                    st.columns(2)
+                st.metric(
+                    "TBT",
+                    metric_label(
+                        metrics.get("tbt")
+                    )
                 )
-
-                with col1:
-                    st.metric(
-                        "TBT",
-                        metric_label(
-                            metrics.get("tbt")
-                        )
-                    )
-
-                with col2:
-                    st.metric(
-                        "Speed Index",
-                        metric_label(
-                            metrics.get(
-                                "speedIndex"
-                            )
-                        )
-                    )
 
                 with st.expander(
                     "Unlighthouse 生データ",
