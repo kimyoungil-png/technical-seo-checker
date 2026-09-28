@@ -64,6 +64,9 @@ if st.button("Technical SEOチェック開始", type="primary"):
         st.warning("http:// または https:// から始まるURLを入力してください。")
         st.stop()
 
+    st.session_state.pop("ppt_report", None)
+    st.session_state.pop("ppt_error", None)
+
     st.info(f"チェック対象: {url}")
 
     siteone_text = ""
@@ -214,6 +217,9 @@ if st.button("Technical SEOチェック開始", type="primary"):
     )
 
     if st.button("PPTを生成"):
+        st.session_state.pop("ppt_report", None)
+        st.session_state.pop("ppt_error", None)
+
         with st.spinner(
             "モバイル画面を取得してPowerPointを生成中..."
         ):
@@ -223,22 +229,34 @@ if st.button("Technical SEOチェック開始", type="primary"):
                     checks=checks,
                 )
 
-                st.download_button(
-                    "PowerPointをダウンロード",
-                    data=ppt_result["bytes"],
-                    file_name=ppt_result["filename"],
-                    mime=(
-                        "application/vnd.openxmlformats-officedocument."
-                        "presentationml.presentation"
-                    ),
+                st.session_state["ppt_report"] = ppt_result
+                st.success(
+                    "PowerPointを生成しました。下のボタンからダウンロードしてください。"
                 )
 
             except Exception as e:
+                st.session_state["ppt_error"] = str(e)
                 st.error(
                     "PowerPointの生成に失敗しました。"
                 )
-                with st.expander("エラー詳細"):
-                    st.code(str(e))
+
+    ppt_result = st.session_state.get("ppt_report")
+    if ppt_result:
+        st.download_button(
+            "PowerPointをダウンロード",
+            data=ppt_result["bytes"],
+            file_name=ppt_result["filename"],
+            mime=(
+                "application/vnd.openxmlformats-officedocument."
+                "presentationml.presentation"
+            ),
+            key="download_ppt_report",
+        )
+
+    ppt_error = st.session_state.get("ppt_error")
+    if ppt_error:
+        with st.expander("PowerPoint生成エラー詳細"):
+            st.code(ppt_error)
 
     st.subheader("Excel貼り付け用")
     st.write(
