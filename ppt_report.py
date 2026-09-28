@@ -19,7 +19,7 @@ def build_ppt_report(
         {
             "url": url,
             "checks": checks,
-            "summary": summary or "",
+            "summaryText": summary or "",
         },
         ensure_ascii=False,
     ).encode("utf-8")
