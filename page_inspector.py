@@ -214,14 +214,20 @@ def inspect_page(url: str):
 
         return any(token in src or token in classes for token in ui_tokens)
 
-    missing_alt_priority = []
-    missing_alt_ui = []
+    content_image_candidates = []
+    ui_or_decorative_images = []
 
-    for img in missing_alt:
+    for img in images:
         if is_decorative_or_ui_candidate(img):
-            missing_alt_ui.append(img)
+            ui_or_decorative_images.append(img)
         else:
-            missing_alt_priority.append(img)
+            content_image_candidates.append(img)
+
+    missing_alt_priority = [
+        img
+        for img in content_image_candidates
+        if not img.has_attr("alt")
+    ]
 
     missing_alt_examples = []
     for img in missing_alt_priority[:5]:
@@ -230,12 +236,63 @@ def inspect_page(url: str):
             "class": " ".join(img.get("class", [])),
         })
 
-    missing_alt_ui_examples = []
-    for img in missing_alt_ui[:5]:
-        missing_alt_ui_examples.append({
-            "src": image_src(img) or "src取得できず",
-            "class": " ".join(img.get("class", [])),
-        })
+    id_nodes = soup.find_all(attrs={"id": True})
+    id_counts = {}
+    for node in id_nodes:
+        id_value = str(node.get("id", "")).strip()
+        if not id_value:
+            continue
+        id_counts[id_value] = id_counts.get(id_value, 0) + 1
+
+    duplicate_id_examples = [
+        {
+            "id": id_value,
+            "count": count,
+        }
+        for id_value, count in id_counts.items()
+        if count > 1
+    ][:5]
+
+    aria_ref_attributes = (
+        "aria-labelledby",
+        "aria-describedby",
+        "aria-controls",
+        "aria-owns",
+        "aria-activedescendant",
+        "aria-details",
+        "aria-errormessage",
+    )
+
+    broken_aria_references = []
+    existing_ids = set(id_counts.keys())
+
+    for node in soup.find_all(True):
+        for attr_name in aria_ref_attributes:
+            raw_value = node.get(attr_name)
+            if not raw_value:
+                continue
+
+            for ref_id in str(raw_value).split():
+                if ref_id not in existing_ids:
+                    node_label = node.name
+                    node_id = str(node.get("id", "")).strip()
+                    if node_id:
+                        node_label += f"#{node_id}"
+
+                    broken_aria_references.append({
+                        "element": node_label,
+                        "attribute": attr_name,
+                        "missing_id": ref_id,
+                    })
+
+                    if len(broken_aria_references) >= 5:
+                        break
+
+            if len(broken_aria_references) >= 5:
+                break
+
+        if len(broken_aria_references) >= 5:
+            break
 
     viewport_tag = soup.find(
         "meta",
@@ -542,11 +599,11 @@ def inspect_page(url: str):
         "heading_sequence": heading_sequence,
         "heading_issues": heading_issues,
         "images_total": len(images),
-        "images_missing_alt": len(missing_alt),
+        "content_image_count": len(content_image_candidates),
         "images_missing_alt_priority": len(missing_alt_priority),
-        "images_missing_alt_ui": len(missing_alt_ui),
         "images_missing_alt_examples": missing_alt_examples,
-        "images_missing_alt_ui_examples": missing_alt_ui_examples,
+        "duplicate_id_examples": duplicate_id_examples,
+        "broken_aria_references": broken_aria_references,
         "viewport": viewport,
         "charset": charset,
         "content_type": content_type,
