@@ -81,14 +81,24 @@ def _status_from_summary(item):
 
 
 
-def _broken_internal_links(siteone_data, page_url, limit=3):
+def _broken_internal_links(
+    siteone_data,
+    page_url,
+    internal_links,
+    limit=3,
+):
     rows = (
         siteone_data.get("tables", {})
         .get("404", {})
         .get("rows", [])
     )
 
-    page_host = urlsplit(page_url).netloc.lower()
+    normalized_internal_links = {
+        _normalize_url(link)
+        for link in (internal_links or [])
+        if link
+    }
+
     broken_urls = []
 
     for row in rows:
@@ -97,9 +107,11 @@ def _broken_internal_links(siteone_data, page_url, limit=3):
             continue
 
         absolute = urljoin(page_url, target)
-        target_host = urlsplit(absolute).netloc.lower()
+        normalized_target = _normalize_url(absolute)
 
-        if target_host != page_host:
+        # SiteOne's 404 table also contains JS/JSON/images and other assets.
+        # Count only URLs that actually appeared in an <a href> on this page.
+        if normalized_target not in normalized_internal_links:
             continue
 
         if absolute not in broken_urls:
@@ -806,6 +818,7 @@ def build_checks(
     broken_internal = _broken_internal_links(
         siteone_data,
         page_data.get("final_url") or url,
+        page_data.get("internal_links", []),
         limit=3,
     )
     broken_count = broken_internal["count"]
