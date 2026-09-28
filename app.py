@@ -88,7 +88,10 @@ def run_audit(target_url, use_lighthouse, use_ai):
     total_steps = 3 if use_lighthouse else 2
 
     with st.spinner(f"1/{total_steps} ページ情報を確認中... {target_url}"):
-        page_data = inspect_page(target_url)
+        page_data = inspect_page(
+            target_url,
+            include_body_text=use_ai,
+        )
 
     body_text = str(page_data.pop("body_text", "") or "")
     body_text_char_count = int(
