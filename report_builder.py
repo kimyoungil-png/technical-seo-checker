@@ -476,6 +476,7 @@ def build_checks(
     schema_microdata_count = page_data.get("microdata_count", 0)
     schema_errors = page_data.get("schema_errors", [])
     schema_types = page_data.get("schema_types", [])
+    schema_entities = page_data.get("schema_entities", [])
     microdata_types = page_data.get("microdata_types", [])
     all_schema_types = schema_types + microdata_types
     total_schema = schema_jsonld_count + schema_microdata_count
@@ -494,10 +495,26 @@ def build_checks(
                 unique_types.append(schema_type)
 
         type_text = ", ".join(unique_types[:6]) if unique_types else "type未取得"
+
+        itempage_names = []
+        for entity in schema_entities:
+            if entity.get("type") == "ItemPage":
+                name = (entity.get("name") or "").strip()
+                if name and name not in itempage_names:
+                    itempage_names.append(name)
+
+        itempage_text = ""
+        if itempage_names:
+            itempage_text = (
+                " / ItemPage name: "
+                + " | ".join(itempage_names[:3])
+            )
+
         schema_result = (
             f"JSON-LD {schema_jsonld_count}ブロック / "
             f"Microdata {schema_microdata_count}要素 / "
             f"@type {len(unique_types)}種類: {type_text}"
+            f"{itempage_text}"
         )
     else:
         schema_status = "△"
