@@ -1,107 +1,90 @@
-import os
 import json
-import subprocess
-import tempfile
-from urllib.parse import urlparse
-from pathlib import Path
-
-NODE_DIR = Path.home() / "node22"
-NODE_BIN = NODE_DIR / "bin" / "node"
-NPX_BIN = NODE_DIR / "bin" / "npx"
+import urllib.request
+import urllib.error
 
 
-def ensure_node():
-    if NODE_BIN.exists() and NPX_BIN.exists():
-        return
-
-    result = subprocess.run(
-        ["bash", "setup_node.sh"],
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-
-    if result.returncode != 0:
-        raise RuntimeError(
-            "Node.js 22 のセットアップに失敗しました。\n"
-            + result.stderr
-        )
+CLOUD_RUN_API = (
+    "https://technical-seo-unlighthouse-api-231228645606."
+    "asia-northeast1.run.app/audit"
+)
 
 
 def run_unlighthouse(url: str):
-    ensure_node()
 
-    parsed = urlparse(url)
+    payload = json.dumps({
+        "url": url
+    }).encode("utf-8")
 
-    base = f"{parsed.scheme}://{parsed.netloc}"
-    path = parsed.path or "/"
-
-    workdir = Path(
-        tempfile.mkdtemp(prefix="unlighthouse-")
+    request = urllib.request.Request(
+        CLOUD_RUN_API,
+        data=payload,
+        headers={
+            "Content-Type": "application/json"
+        },
+        method="POST",
     )
 
-    env = os.environ.copy()
+    try:
 
-    env["PATH"] = (
-        f"{NODE_DIR / 'bin'}:"
-        + env.get("PATH", "")
-    )
+        with urllib.request.urlopen(
+            request,
+            timeout=180
+        ) as response:
 
-    env["CHROME_PATH"] = "/usr/bin/chromium"
+            body = response.read().decode("utf-8")
 
-    cmd = [
-    str(NPX_BIN),
-    "--yes",
-    "unlighthouse@0.18.1",
-    "ci",
-    "--config-file",
-    "unlighthouse.config.mjs",
-        "--site",
-        base,
-        "--urls",
-        path,
-        "--output-path",
-        str(workdir),
-        "--reporter",
-        "jsonExpanded",
-        "--no-cache",
-    ]
+        data = json.loads(body)
 
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=600,
-        env=env,
-    )
+        if data.get("success"):
 
-    json_files = list(
-        workdir.rglob("*.json")
-    )
+            return {
+                "returncode": 0,
+                "stdout": data.get("stdout", ""),
+                "stderr": "",
+                "reports": [
+                    {
+                        "data": report
+                    }
+                    for report in data.get(
+                        "reports",
+                        []
+                    )
+                ],
+            }
 
-    reports = []
+        return {
+            "returncode": 1,
+            "stdout": data.get("stdout", ""),
+            "stderr": (
+                data.get("stderr")
+                or data.get("error")
+                or "Unlighthouse API error"
+            ),
+            "reports": [],
+        }
 
-    for file in json_files:
-        try:
-            with open(
-                file,
-                "r",
-                encoding="utf-8",
-            ) as f:
-                data = json.load(f)
+    except urllib.error.HTTPError as e:
 
-            reports.append({
-                "file": str(file),
-                "data": data,
-            })
+        error_body = e.read().decode(
+            "utf-8",
+            errors="ignore"
+        )
 
-        except Exception:
-            pass
+        return {
+            "returncode": 1,
+            "stdout": "",
+            "stderr": (
+                f"Cloud Run HTTP Error "
+                f"{e.code}\n{error_body}"
+            ),
+            "reports": [],
+        }
 
-    return {
-        "returncode": result.returncode,
-        "stdout": result.stdout,
-        "stderr": result.stderr,
-        "reports": reports,
-        "workdir": str(workdir),
-    }
+    except Exception as e:
+
+        return {
+            "returncode": 1,
+            "stdout": "",
+            "stderr": str(e),
+            "reports": [],
+        }
