@@ -1119,6 +1119,44 @@ def tsv_table(checks):
     return "\n".join(lines)
 
 
+def _html_result_text(row):
+    import html
+
+    result_text = str(row["Result"])
+    action_text = str(row["Action"])
+
+    parts = []
+
+    if " / 例: " in result_text:
+        main, examples = result_text.split(" / 例: ", 1)
+        parts.append(html.escape(main))
+
+        example_items = [
+            item.strip()
+            for item in examples.split(" | ")
+            if item.strip()
+        ]
+
+        if example_items:
+            parts.append(
+                "<strong>例:</strong><br>"
+                + "<br>".join(
+                    html.escape(item)
+                    for item in example_items
+                )
+            )
+    else:
+        parts.append(html.escape(result_text))
+
+    if action_text and action_text != "対応不要":
+        parts.append(
+            "<strong>コメント:</strong><br>"
+            + html.escape(action_text)
+        )
+
+    return "<br><br>".join(parts)
+
+
 def html_table(checks):
     import html
 
@@ -1131,11 +1169,7 @@ def html_table(checks):
             "NG": "status-ng",
         }.get(status, "")
 
-        result_text = str(row["Result"])
-        action_text = str(row["Action"])
-
-        if action_text and action_text != "対応不要":
-            result_text += f" / コメント: {action_text}"
+        result_html = _html_result_text(row)
 
         rows.append(
             "<tr>"
@@ -1144,7 +1178,7 @@ def html_table(checks):
             f"<td class='item'>{html.escape(str(row['Item']))}</td>"
             f"<td class='desc'>{html.escape(str(row['Meaning']))}</td>"
             f"<td class='judge {status_class}'>{html.escape(str(status))}</td>"
-            f"<td>{html.escape(result_text)}</td>"
+            f"<td class='result'>{result_html}</td>"
             "</tr>"
         )
 
@@ -1180,6 +1214,10 @@ def html_table(checks):
         text-align:center;
         font-weight:700;
         white-space:nowrap;
+    }
+    .seo-report-table .result {
+        min-width:360px;
+        line-height:1.6;
     }
     .seo-report-table .status-ok { color:#15803d; }
     .seo-report-table .status-warn { color:#a16207; }
