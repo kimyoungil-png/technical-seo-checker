@@ -28,6 +28,7 @@ st.write(
 MAX_URLS = 10
 SITEONE_DETAIL_CHAR_LIMIT = 50_000
 PAGE_DETAIL_LIST_LIMIT = 100
+BODY_PROOFREAD_CHAR_LIMIT = 8_000
 
 urls_text = st.text_area(
     f"チェックするURL（1行に1URL、最大{MAX_URLS}件）",
@@ -57,8 +58,12 @@ run_lighthouse = st.checkbox(
 )
 
 generate_ai = st.checkbox(
-    "Geminiによるまとめを追加する",
+    "Geminiによるまとめ・本文の誤字脱字チェックを追加する",
     value=True,
+    help=(
+        "誤字脱字チェックはSEO判定には含めません。"
+        "表示本文が長い場合は先頭8,000文字までを確認します。"
+    ),
     key="input_generate_ai",
 )
 
@@ -84,6 +89,13 @@ def run_audit(target_url, use_lighthouse, use_ai):
 
     with st.spinner(f"1/{total_steps} ページ情報を確認中... {target_url}"):
         page_data = inspect_page(target_url)
+
+    body_text = str(page_data.pop("body_text", "") or "")
+    body_text_char_count = int(
+        page_data.get("body_text_char_count")
+        or len(body_text)
+    )
+    body_text_for_ai = body_text[:BODY_PROOFREAD_CHAR_LIMIT]
 
     with st.spinner(f"2/{total_steps} SiteOne CrawlerでTechnical SEOを確認中... {target_url}"):
         try:
@@ -129,6 +141,7 @@ def run_audit(target_url, use_lighthouse, use_ai):
     ai_text = ""
     ai_model = ""
     ai_error = ""
+    proofreading = []
 
     if use_ai:
         api_key = get_secret("GEMINI_API_KEY")
@@ -140,7 +153,7 @@ def run_audit(target_url, use_lighthouse, use_ai):
                 "GEMINI_API_KEYを設定してください。"
             )
         else:
-            with st.spinner(f"チェック結果を簡潔にまとめています... {target_url}"):
+            with st.spinner(f"まとめ・本文の誤字脱字を確認しています... {target_url}"):
                 try:
                     advice_result = generate_ai_advice(
                         url=target_url,
@@ -148,8 +161,10 @@ def run_audit(target_url, use_lighthouse, use_ai):
                         api_key=api_key,
                         model=model,
                         checks=checks,
+                        body_text=body_text_for_ai,
                     )
                     ai_text = advice_result.get("text", "")
+                    proofreading = advice_result.get("proofreading", []) or []
                     ai_model = advice_result.get("model", model)
                 except Exception as e:
                     ai_error = str(e)
@@ -182,6 +197,9 @@ def run_audit(target_url, use_lighthouse, use_ai):
         "ai_text": ai_text,
         "ai_model": ai_model,
         "ai_error": ai_error,
+        "proofreading": proofreading,
+        "body_text_char_count": body_text_char_count,
+        "body_text_checked_chars": len(body_text_for_ai),
         "metrics": metrics,
         "page_data": page_data_for_ui,
         "siteone_text": siteone_text,
@@ -324,6 +342,34 @@ def render_audit_result(audit, index):
             if audit.get("ai_error"):
                 with st.expander("Geminiエラー詳細", expanded=False):
                     st.code(audit["ai_error"])
+
+        st.subheader("本文の誤字脱字チェック")
+        st.caption("SEO判定には含めません。明確な誤字・脱字・変換ミスだけを確認します。")
+
+        checked_chars = int(audit.get("body_text_checked_chars") or 0)
+        total_chars = int(audit.get("body_text_char_count") or checked_chars)
+        proofreading = audit.get("proofreading") or []
+
+        if audit.get("ai_error"):
+            st.caption("Geminiの取得に失敗したため、本文チェックも実施できませんでした。")
+        elif checked_chars == 0:
+            st.caption("本文テキストを取得できなかったため、誤字脱字チェックは実施していません。")
+        elif proofreading:
+            for proof_index, item in enumerate(proofreading, start=1):
+                st.write(f"{proof_index}. 原文: {item.get('original', '')}")
+                st.write(f"   修正案: {item.get('suggestion', '')}")
+                if item.get("reason"):
+                    st.caption(f"理由: {item['reason']}")
+        else:
+            st.success("明確な誤字脱字は検出されませんでした。")
+
+        if checked_chars:
+            if total_chars > checked_chars:
+                st.caption(
+                    f"本文 {total_chars:,}文字のうち先頭{checked_chars:,}文字を確認しました。"
+                )
+            else:
+                st.caption(f"本文 {checked_chars:,}文字を確認しました。")
 
     with st.expander("Excel貼り付け用", expanded=False):
         st.write(
