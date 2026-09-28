@@ -3,7 +3,7 @@ import streamlit as st
 
 from ai_advisor import DEFAULT_MODEL, generate_ai_advice
 from page_inspector import inspect_page
-from report_builder import build_checks, build_copy_report, counts, html_table
+from report_builder import build_checks, build_copy_report, counts, html_table, tsv_table
 from siteone_runner import run_siteone
 from unlighthouse_runner import run_unlighthouse
 
@@ -204,9 +204,29 @@ if st.button("Technical SEOチェック開始", type="primary"):
         ai_text=ai_text,
     )
 
-    st.subheader("コピー用レポート")
+    excel_paste = tsv_table(checks)
+
+    st.subheader("Excel貼り付け用")
     st.write(
-        "下記をそのままコピーして、メール・Slack・ドキュメント等に貼り付けられます。"
+        "下記をすべてコピーしてExcelのA1セルに貼り付けると、列ごとのテーブルとして展開されます。"
+    )
+    st.text_area(
+        "Excel貼り付け用（タブ区切り）",
+        value=excel_paste,
+        height=240,
+        label_visibility="collapsed",
+    )
+
+    st.download_button(
+        "TSVを保存",
+        data="\ufeff" + excel_paste,
+        file_name="technical-seo-report.tsv",
+        mime="text/tab-separated-values",
+    )
+
+    st.subheader("共有用テキスト")
+    st.write(
+        "メール・Slack・ドキュメント向けのMarkdown形式です。"
     )
     st.code(copy_report, language="markdown")
 
@@ -215,6 +235,11 @@ if st.button("Technical SEOチェック開始", type="primary"):
         data=copy_report,
         file_name="technical-seo-report.md",
         mime="text/markdown",
+    )
+
+    st.caption(
+        "PowerPointへ表として入れる場合は、Excelに貼り付けて表として整えた後、"
+        "Excelの表をPowerPointへコピーする方法が最も確実です。"
     )
 
     with st.expander("詳細データを見る", expanded=False):
