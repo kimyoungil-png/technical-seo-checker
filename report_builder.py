@@ -79,6 +79,56 @@ def _status_from_summary(item):
     return None
 
 
+SCHEMA_TYPE_LABELS = {
+    "BreadcrumbList": "パンくず",
+    "FAQPage": "FAQ",
+    "ItemList": "一覧リスト",
+    "ItemPage": "個別ページ",
+    "Product": "商品",
+    "ProductGroup": "商品グループ／バリエーション",
+    "WebPage": "Webページ",
+    "WebSite": "Webサイト",
+    "Organization": "組織・企業",
+    "Article": "記事",
+    "NewsArticle": "ニュース記事",
+    "BlogPosting": "ブログ記事",
+    "LocalBusiness": "ローカルビジネス",
+    "Person": "人物",
+    "VideoObject": "動画",
+    "ImageObject": "画像",
+    "Event": "イベント",
+    "HowTo": "ハウツー",
+    "SoftwareApplication": "アプリ／ソフトウェア",
+    "Review": "レビュー",
+    "AggregateRating": "集計評価",
+}
+
+
+def _schema_type_summary(types, limit=6):
+    unique_types = []
+    for schema_type in types or []:
+        if schema_type and schema_type not in unique_types:
+            unique_types.append(schema_type)
+
+    if not unique_types:
+        return "種類を特定できず"
+
+    labels = []
+    for schema_type in unique_types[:limit]:
+        jp = SCHEMA_TYPE_LABELS.get(schema_type)
+        labels.append(
+            f"{jp}（{schema_type}）"
+            if jp
+            else str(schema_type)
+        )
+
+    extra = len(unique_types) - limit
+    if extra > 0:
+        labels.append(f"ほか{extra}種類")
+
+    return "、".join(labels)
+
+
 TECHNICAL_MEANINGS = {
     "HTTP Status": "HTTPレスポンスコードを確認し、Googlebot等のクローラが対象URLを正常取得できる状態（200 OK）かを判定します。",
     "HTTPS": "TLSで暗号化されたHTTPS配信かを確認します。HTTPSは通信保護に加え、正規URL・リダイレクト設計の基盤になります。",
@@ -476,6 +526,8 @@ def build_checks(
     schema_microdata_count = page_data.get("microdata_count", 0)
     schema_errors = page_data.get("schema_errors", [])
     schema_types = page_data.get("schema_types", [])
+    microdata_types = page_data.get("microdata_types", [])
+    all_schema_types = schema_types + microdata_types
     total_schema = schema_jsonld_count + schema_microdata_count
 
     if schema_errors and total_schema > 0:
@@ -486,11 +538,11 @@ def build_checks(
         schema_result = " / ".join(schema_errors[:2])
     elif total_schema > 0:
         schema_status = "OK"
-        type_text = ", ".join(schema_types[:6]) if schema_types else "type未取得"
+        type_text = _schema_type_summary(all_schema_types)
         schema_result = (
-            f"JSON-LD {schema_jsonld_count}件 / "
-            f"Microdata {schema_microdata_count}件 / "
-            f"@type: {type_text}"
+            f"構造化データあり：JSON-LD {schema_jsonld_count}件 / "
+            f"Microdata {schema_microdata_count}件"
+            f"｜主な種類：{type_text}"
         )
     else:
         schema_status = "△"
