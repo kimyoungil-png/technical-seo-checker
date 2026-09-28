@@ -1,13 +1,231 @@
 import base64
+import io
 import json
+import tempfile
 import urllib.error
 import urllib.request
+from datetime import datetime
+from urllib.parse import urlparse
 
+from pptx import Presentation
+from pptx.dml.color import RGBColor
+from pptx.enum.text import PP_ALIGN
+from pptx.util import Pt
+
+
+CLOUD_RUN_SCREENSHOT_API = (
+    "https://technical-seo-unlighthouse-api-231228645606."
+    "asia-northeast1.run.app/screenshot"
+)
 
 CLOUD_RUN_REPORT_API = (
     "https://technical-seo-unlighthouse-api-231228645606."
     "asia-northeast1.run.app/report-ppt"
 )
+
+PPT_FONT_FACE = "Meiryo UI"
+
+
+def _post_json(api_url: str, payload: dict, timeout: int = 120):
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+
+    request = urllib.request.Request(
+        api_url,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(
+            f"Cloud Run HTTP Error {e.code}: {error_body}"
+        ) from e
+
+
+def _get_mobile_screenshot(url: str) -> bytes:
+    data = _post_json(
+        CLOUD_RUN_SCREENSHOT_API,
+        {"url": url},
+        timeout=90,
+    )
+
+    if not data.get("success"):
+        raise RuntimeError(data.get("error") or "Screenshot failed")
+
+    encoded = data.get("imageBase64")
+    if not encoded:
+        raise RuntimeError("Screenshot data was not returned")
+
+    return base64.b64decode(encoded)
+
+
+def _set_cell_text(cell, text, font_size=6, bold=False, color="000000", align=None):
+    cell.text = ""
+    paragraph = cell.text_frame.paragraphs[0]
+    if align:
+        paragraph.alignment = align
+    run = paragraph.add_run()
+    run.text = str(text or "")
+    run.font.name = PPT_FONT_FACE
+    run.font.size = Pt(font_size)
+    run.font.bold = bold
+    run.font.color.rgb = RGBColor.from_string(color)
+
+
+def _status_color(status: str):
+    if status == "OK":
+        return "008A3D"
+    if status == "NG":
+        return "D00000"
+    if status == "△":
+        return "B36B00"
+    return "555555"
+
+
+def _replace_title_and_summary(slide, url: str, summary: str):
+    parsed = urlparse(url)
+    path = parsed.path or "/"
+    date_label = f"{datetime.now().month}/{datetime.now().day}"
+    title = f"{path}（{date_label}時点チェック）"
+
+    summary = (summary or "").strip()
+    if not summary:
+        summary = "Technical SEOチェック結果を確認してください。"
+
+    for shape in slide.shapes:
+        if not getattr(shape, "has_text_frame", False):
+            continue
+        if "まとめ" not in shape.text and "URL" not in shape.text:
+            continue
+
+        text_frame = shape.text_frame
+        text_frame.clear()
+
+        p1 = text_frame.paragraphs[0]
+        r1 = p1.add_run()
+        r1.text = title
+        r1.font.name = PPT_FONT_FACE
+        r1.font.size = Pt(16)
+        r1.font.bold = False
+        r1.font.color.rgb = RGBColor.from_string("222222")
+
+        p2 = text_frame.add_paragraph()
+        r2 = p2.add_run()
+        r2.text = summary
+        r2.font.name = PPT_FONT_FACE
+        r2.font.size = Pt(16)
+        r2.font.bold = True
+        r2.font.color.rgb = RGBColor.from_string("0432FF")
+        return
+
+
+def _fill_table(slide, checks):
+    table_shape = next((shape for shape in slide.shapes if getattr(shape, "has_table", False)), None)
+    if table_shape is None:
+        raise RuntimeError("Template table was not found")
+
+    table = table_shape.table
+
+    # Keep No / チェック項目 / 説明 columns as template structure.
+    # Only swap the 判定 and 結果 columns: col 3 = 結果, col 4 = 判定.
+    _set_cell_text(table.cell(0, 0), "No", 8, True, align=PP_ALIGN.CENTER)
+    _set_cell_text(table.cell(0, 1), "チェック項目", 8, True, align=PP_ALIGN.CENTER)
+    _set_cell_text(table.cell(0, 2), "", 8, True, align=PP_ALIGN.CENTER)
+    _set_cell_text(table.cell(0, 3), "結果", 8, True, align=PP_ALIGN.CENTER)
+    _set_cell_text(table.cell(0, 4), "判定", 8, True, align=PP_ALIGN.CENTER)
+
+    max_rows = min(len(checks), len(table.rows) - 1)
+
+    for index in range(max_rows):
+        row = checks[index]
+        ppt_row = index + 1
+
+        result_text = str(row.get("Result") or "")
+        action_text = str(row.get("Action") or "")
+        if action_text and action_text != "対応不要":
+            result_text += f"\nコメント: {action_text}"
+
+        status = str(row.get("Status") or "")
+
+        _set_cell_text(table.cell(ppt_row, 0), row.get("No"), 7, False, align=PP_ALIGN.CENTER)
+        _set_cell_text(table.cell(ppt_row, 1), row.get("Item"), 7, True)
+        _set_cell_text(table.cell(ppt_row, 2), row.get("Meaning"), 5, False)
+        _set_cell_text(table.cell(ppt_row, 3), result_text, 5, False)
+        _set_cell_text(
+            table.cell(ppt_row, 4),
+            status,
+            7,
+            True,
+            color=_status_color(status),
+            align=PP_ALIGN.CENTER,
+        )
+
+    # Clear unused template rows when Lighthouse is OFF etc.
+    for ppt_row in range(max_rows + 1, len(table.rows)):
+        for col in range(len(table.columns)):
+            table.cell(ppt_row, col).text = ""
+
+
+def _add_screenshot_behind_phone_frame(slide, screenshot_bytes: bytes):
+    phone_shape = next((shape for shape in slide.shapes if shape.shape_type == 13), None)
+    if phone_shape is None:
+        return
+
+    left = phone_shape.left
+    top = phone_shape.top
+    width = phone_shape.width
+    height = phone_shape.height
+
+    # Place screenshot inside the transparent phone-frame window.
+    shot_left = left + int(width * 0.09)
+    shot_top = top + int(height * 0.06)
+    shot_width = int(width * 0.82)
+    shot_height = int(height * 0.88)
+
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as image_file:
+        image_file.write(screenshot_bytes)
+        image_path = image_file.name
+
+    pic = slide.shapes.add_picture(
+        image_path,
+        shot_left,
+        shot_top,
+        width=shot_width,
+        height=shot_height,
+    )
+
+    # Move screenshot behind the phone-frame picture so the provided frame stays on top.
+    sp_tree = slide.shapes._spTree
+    sp_tree.remove(pic._element)
+    sp_tree.insert(2, pic._element)
+
+
+def build_ppt_report_from_template(
+    url: str,
+    checks: list[dict],
+    summary: str,
+    template_bytes: bytes,
+):
+    screenshot = _get_mobile_screenshot(url)
+    presentation = Presentation(io.BytesIO(template_bytes))
+    slide = presentation.slides[0]
+
+    _replace_title_and_summary(slide, url, summary)
+    _fill_table(slide, checks)
+    _add_screenshot_behind_phone_frame(slide, screenshot)
+
+    output = io.BytesIO()
+    presentation.save(output)
+    output.seek(0)
+
+    return {
+        "bytes": output.read(),
+        "filename": "technical-seo-report.pptx",
+    }
 
 
 def build_ppt_report(
@@ -15,58 +233,24 @@ def build_ppt_report(
     checks: list[dict],
     summary: str = "",
 ):
-    payload = json.dumps(
+    data = _post_json(
+        CLOUD_RUN_REPORT_API,
         {
             "url": url,
             "checks": checks,
             "summaryText": summary or "",
         },
-        ensure_ascii=False,
-    ).encode("utf-8")
-
-    request = urllib.request.Request(
-        CLOUD_RUN_REPORT_API,
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
+        timeout=120,
     )
 
-    try:
-        with urllib.request.urlopen(
-            request,
-            timeout=120,
-        ) as response:
-            body = response.read().decode("utf-8")
+    if not data.get("success"):
+        raise RuntimeError(data.get("error") or "PowerPoint generation failed")
 
-        data = json.loads(body)
+    encoded = data.get("fileBase64")
+    if not encoded:
+        raise RuntimeError("PowerPoint data was not returned")
 
-        if not data.get("success"):
-            raise RuntimeError(
-                data.get("error")
-                or "PowerPoint generation failed"
-            )
-
-        encoded = data.get("fileBase64")
-        if not encoded:
-            raise RuntimeError(
-                "PowerPoint data was not returned"
-            )
-
-        return {
-            "bytes": base64.b64decode(encoded),
-            "filename": (
-                data.get("filename")
-                or "technical-seo-report.pptx"
-            ),
-        }
-
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode(
-            "utf-8",
-            errors="ignore",
-        )
-
-        raise RuntimeError(
-            f"Cloud Run HTTP Error {e.code}: "
-            f"{error_body}"
-        ) from e
+    return {
+        "bytes": base64.b64decode(encoded),
+        "filename": data.get("filename") or "technical-seo-report.pptx",
+    }
