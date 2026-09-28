@@ -28,6 +28,7 @@ st.write(
 url = st.text_input(
     "チェックするURL",
     placeholder="https://www.example.com/page/",
+    key="input_url",
 )
 
 run_lighthouse = st.checkbox(
@@ -37,11 +38,13 @@ run_lighthouse = st.checkbox(
         "Lighthouseはブラウザ計測を伴うため、通常チェックより時間がかかり、"
         "一時的に失敗することがあります。必要なときだけONにしてください。"
     ),
+    key="input_run_lighthouse",
 )
 
 generate_ai = st.checkbox(
     "Geminiによるまとめを追加する",
     value=True,
+    key="input_generate_ai",
 )
 
 
@@ -55,34 +58,21 @@ def get_secret(name):
     return os.getenv(name)
 
 
-if st.button("Technical SEOチェック開始", type="primary"):
-    if not url:
-        st.warning("URLを入力してください。")
-        st.stop()
-
-    if not url.startswith(("http://", "https://")):
-        st.warning("http:// または https:// から始まるURLを入力してください。")
-        st.stop()
-
-    st.session_state.pop("ppt_report", None)
-    st.session_state.pop("ppt_error", None)
-
-    st.info(f"チェック対象: {url}")
-
+def run_audit(target_url, use_lighthouse, use_ai):
     siteone_text = ""
     siteone_data = {}
     metrics = {}
     lighthouse_status = "skipped"
     lighthouse_error = ""
 
-    total_steps = 3 if run_lighthouse else 2
+    total_steps = 3 if use_lighthouse else 2
 
     with st.spinner(f"1/{total_steps} ページ情報を確認中..."):
-        page_data = inspect_page(url)
+        page_data = inspect_page(target_url)
 
     with st.spinner(f"2/{total_steps} SiteOne CrawlerでTechnical SEOを確認中..."):
         try:
-            siteone_result = run_siteone(url)
+            siteone_result = run_siteone(target_url)
             siteone_text = (
                 siteone_result.get("report")
                 or siteone_result.get("stdout")
@@ -92,12 +82,12 @@ if st.button("Technical SEOチェック開始", type="primary"):
         except Exception as e:
             st.warning(f"SiteOne Crawlerの一部データを取得できませんでした: {e}")
 
-    if run_lighthouse:
+    if use_lighthouse:
         lighthouse_status = "failed"
 
         with st.spinner("3/3 LighthouseでPerformanceを確認中..."):
             try:
-                unlighthouse_result = run_unlighthouse(url)
+                unlighthouse_result = run_unlighthouse(target_url)
 
                 if unlighthouse_result.get("returncode") == 0:
                     metrics = unlighthouse_result.get("metrics") or {}
@@ -119,23 +109,112 @@ if st.button("Technical SEOチェック開始", type="primary"):
                     "通常のTechnical SEOチェック結果はそのまま利用できます。"
                 )
     else:
-        st.caption(
-            "LighthouseはオプションOFFのため実行していません。"
-        )
+        st.caption("LighthouseはオプションOFFのため実行していません。")
 
     checks = build_checks(
-        url=url,
+        url=target_url,
         siteone_data=siteone_data,
         page_data=page_data,
         metrics=metrics,
         lighthouse_status=lighthouse_status,
     )
 
-    c = counts(checks)
+    check_count = 23 if use_lighthouse else 20
+    ai_text = ""
+    ai_model = ""
+
+    if use_ai:
+        api_key = get_secret("GEMINI_API_KEY")
+        model = get_secret("GEMINI_MODEL") or DEFAULT_MODEL
+
+        if not api_key:
+            st.warning(
+                "Geminiレビューを利用するには、Streamlit Secretsに"
+                "GEMINI_API_KEYを設定してください。"
+            )
+        else:
+            with st.spinner("チェック結果を簡潔にまとめています..."):
+                try:
+                    advice_result = generate_ai_advice(
+                        url=target_url,
+                        siteone_text=siteone_text,
+                        metrics=metrics,
+                        api_key=api_key,
+                        model=model,
+                        checks=checks,
+                    )
+
+                    ai_text = advice_result.get("text", "")
+                    ai_model = advice_result.get("model", model)
+
+                except Exception as e:
+                    st.warning(
+                        "Geminiレビューを取得できませんでした。"
+                        f"{check_count}項目チェック結果はそのまま利用できます。"
+                    )
+                    with st.expander("エラー詳細"):
+                        st.code(str(e))
+
+    return {
+        "url": target_url,
+        "run_lighthouse": use_lighthouse,
+        "generate_ai": use_ai,
+        "checks": checks,
+        "counts": counts(checks),
+        "check_count": check_count,
+        "ai_text": ai_text,
+        "ai_model": ai_model,
+        "metrics": metrics,
+        "page_data": page_data,
+        "siteone_text": siteone_text,
+        "lighthouse_error": lighthouse_error,
+    }
+
+
+if st.button("Technical SEOチェック開始", type="primary"):
+    if not url:
+        st.warning("URLを入力してください。")
+        st.stop()
+
+    if not url.startswith(("http://", "https://")):
+        st.warning("http:// または https:// から始まるURLを入力してください。")
+        st.stop()
+
+    st.session_state.pop("ppt_report", None)
+    st.session_state.pop("ppt_error", None)
+
+    st.info(f"チェック対象: {url}")
+    st.session_state["audit_result"] = run_audit(
+        target_url=url,
+        use_lighthouse=run_lighthouse,
+        use_ai=generate_ai,
+    )
+
+
+audit = st.session_state.get("audit_result")
+
+if audit:
+    checks = audit["checks"]
+    c = audit["counts"]
+    check_count = audit["check_count"]
+    ai_text = audit.get("ai_text", "")
+    metrics = audit.get("metrics", {})
+    page_data = audit.get("page_data", {})
+    siteone_text = audit.get("siteone_text", "")
+    lighthouse_error = audit.get("lighthouse_error", "")
+    checked_url = audit["url"]
+
+    copy_report = build_copy_report(
+        url=checked_url,
+        checks=checks,
+        ai_text=ai_text,
+    )
+
+    excel_paste = tsv_table(checks)
 
     st.divider()
     st.header("Technical SEO Check Report")
-    st.caption(f"対象URL: {url}")
+    st.caption(f"対象URL: {checked_url}")
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -157,75 +236,34 @@ if st.button("Technical SEOチェック開始", type="primary"):
             f"NGが{c['NG']}件あります。公開・更新後の優先修正対象として確認してください。"
         )
 
-    check_count = 23 if run_lighthouse else 20
     st.subheader(f"{check_count}項目チェック")
     st.markdown(
         html_table(checks),
         unsafe_allow_html=True,
     )
 
-    ai_text = ""
-
-    if generate_ai:
+    if audit.get("generate_ai"):
         st.subheader("まとめ")
-
-        api_key = get_secret("GEMINI_API_KEY")
-        model = get_secret("GEMINI_MODEL") or DEFAULT_MODEL
-
-        if not api_key:
-            st.warning(
-                "Geminiレビューを利用するには、Streamlit Secretsに"
-                "GEMINI_API_KEYを設定してください。"
-            )
+        if ai_text:
+            st.markdown(ai_text)
+            if audit.get("ai_model"):
+                st.caption(f"Gemini model: {audit['ai_model']}")
         else:
-            with st.spinner("チェック結果を簡潔にまとめています..."):
-                try:
-                    advice_result = generate_ai_advice(
-                        url=url,
-                        siteone_text=siteone_text,
-                        metrics=metrics,
-                        api_key=api_key,
-                        model=model,
-                        checks=checks,
-                    )
-
-                    ai_text = advice_result.get("text", "")
-                    st.markdown(ai_text)
-
-                    used_model = advice_result.get("model", model)
-                    st.caption(f"Gemini model: {used_model}")
-
-                except Exception as e:
-                    st.warning(
-                        "Geminiレビューを取得できませんでした。"
-                        f"{check_count}項目チェック結果はそのまま利用できます。"
-                    )
-                    with st.expander("エラー詳細"):
-                        st.code(str(e))
-
-    copy_report = build_copy_report(
-        url=url,
-        checks=checks,
-        ai_text=ai_text,
-    )
-
-    excel_paste = tsv_table(checks)
+            st.caption("まとめは取得できませんでした。")
 
     st.subheader("PowerPoint出力")
     st.write(
         "モバイルのファーストビュー画像とチェック結果を1枚のPPTにまとめます。"
     )
 
-    if st.button("PPTを生成"):
+    if st.button("PPTを生成", key="generate_ppt_report"):
         st.session_state.pop("ppt_report", None)
         st.session_state.pop("ppt_error", None)
 
-        with st.spinner(
-            "モバイル画面を取得してPowerPointを生成中..."
-        ):
+        with st.spinner("モバイル画面を取得してPowerPointを生成中..."):
             try:
                 ppt_result = build_ppt_report(
-                    url=url,
+                    url=checked_url,
                     checks=checks,
                 )
 
@@ -236,9 +274,7 @@ if st.button("Technical SEOチェック開始", type="primary"):
 
             except Exception as e:
                 st.session_state["ppt_error"] = str(e)
-                st.error(
-                    "PowerPointの生成に失敗しました。"
-                )
+                st.error("PowerPointの生成に失敗しました。")
 
     ppt_result = st.session_state.get("ppt_report")
     if ppt_result:
@@ -277,9 +313,7 @@ if st.button("Technical SEOチェック開始", type="primary"):
     )
 
     st.subheader("共有用テキスト")
-    st.write(
-        "メール・Slack・ドキュメント向けのMarkdown形式です。"
-    )
+    st.write("メール・Slack・ドキュメント向けのMarkdown形式です。")
     st.code(copy_report, language="markdown")
 
     st.download_button(
@@ -295,7 +329,7 @@ if st.button("Technical SEOチェック開始", type="primary"):
     )
 
     with st.expander("詳細データを見る", expanded=False):
-        if run_lighthouse:
+        if audit.get("run_lighthouse"):
             st.markdown("#### Lighthouse metrics")
             st.json(metrics)
 
