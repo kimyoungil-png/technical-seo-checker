@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
-from pptx.util import Pt
+from pptx.util import Inches, Pt
 
 
 CLOUD_RUN_SCREENSHOT_API = (
@@ -187,25 +187,14 @@ def _fill_table(slide, checks):
             table.cell(ppt_row, col).text = ""
 
 
-def _add_screenshot_behind_phone_frame(slide, screenshot_bytes: bytes):
-    # Use the largest picture on the slide as the phone mockup.
-    # The template can contain other small pictures/logos, so relying on
-    # the first picture can place the screenshot in the wrong location.
-    picture_shapes = [shape for shape in slide.shapes if shape.shape_type == 13]
-    if not picture_shapes:
-        raise RuntimeError("Template phone frame was not found")
-
-    phone_shape = max(picture_shapes, key=lambda shape: shape.width * shape.height)
-
-    left = phone_shape.left
-    top = phone_shape.top
-    width = phone_shape.width
-    height = phone_shape.height
-
-    shot_left = left + int(width * 0.09)
-    shot_top = top + int(height * 0.06)
-    shot_width = int(width * 0.82)
-    shot_height = int(height * 0.88)
+def _add_screenshot_fixed(slide, screenshot_bytes: bytes):
+    # Fixed placement based on the approved Technical SEO report layout.
+    # The current PPT template does not contain an image placeholder, so
+    # the mobile first-view screenshot is always inserted at this position.
+    shot_left = Inches(0.55)
+    shot_top = Inches(1.50)
+    shot_width = Inches(2.38)
+    shot_height = Inches(5.64)
 
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as image_file:
         image_file.write(screenshot_bytes)
@@ -219,13 +208,10 @@ def _add_screenshot_behind_phone_frame(slide, screenshot_bytes: bytes):
         height=shot_height,
     )
 
-    # Put the screenshot immediately behind the phone frame, not at a
-    # fixed z-order position. This keeps it visible while preserving the
-    # mockup frame above it.
+    # Keep the screenshot behind the phone-frame line shapes and the table.
     sp_tree = slide.shapes._spTree
-    phone_index = list(sp_tree).index(phone_shape._element)
     sp_tree.remove(pic._element)
-    sp_tree.insert(phone_index, pic._element)
+    sp_tree.insert(2, pic._element)
 
 
 def _duplicate_template_slide(presentation, source_slide):
@@ -265,7 +251,7 @@ def build_multi_ppt_report_from_template(reports: list[dict], template_bytes: by
 
         try:
             screenshot = _get_mobile_screenshot(url)
-            _add_screenshot_behind_phone_frame(slide, screenshot)
+            _add_screenshot_fixed(slide, screenshot)
         except Exception as exc:
             warnings.append(f"{url}: モバイルスクリーンショット取得失敗 ({exc})")
 
