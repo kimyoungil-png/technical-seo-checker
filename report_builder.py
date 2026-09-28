@@ -79,6 +79,30 @@ def _status_from_summary(item):
     return None
 
 
+TECHNICAL_MEANINGS = {
+    "HTTP Status": "HTTPレスポンスコードを確認し、Googlebot等のクローラが対象URLを正常取得できる状態（200 OK）かを判定します。",
+    "HTTPS": "TLSで暗号化されたHTTPS配信かを確認します。HTTPSは通信保護に加え、正規URL・リダイレクト設計の基盤になります。",
+    "Indexability": "robots.txt、meta robots、X-Robots-Tagなどのクロール／インデックス制御を確認し、検索エンジンのインデックス対象になれる状態かを判定します。",
+    "Canonical": "rel=canonicalの正規化シグナルを確認し、重複URL群の代表URLが実際の最終到達URLと整合しているかを判定します。",
+    "Title": "HTML <title>を確認します。SERPのタイトル候補であり、検索エンジンがページ主題・クエリ関連性を理解する主要なオンページシグナルです。",
+    "Title Length": "Titleの文字量を確認します。過度に短い場合は主題の識別性が低下し、長すぎる場合はSERPでの省略・再生成が起こりやすくなります。",
+    "Meta Description": "meta name=descriptionの有無を確認します。直接的なランキング要因ではありませんが、SERPスニペット候補としてCTRと検索意図の伝達に関与します。",
+    "Meta Description Length": "meta descriptionの情報量を確認します。検索結果上の表示幅を意識しつつ、ページ内容・ベネフィット・検索意図を過不足なく記述できているかを見ます。",
+    "H1": "最上位見出しH1の有無と個数を確認します。DOM上の見出しアウトラインとページの主題を明確化するセマンティックHTMLの基本要素です。",
+    "Heading Structure": "H1→H2→H3の見出し階層を確認し、heading levelのスキップや不自然なアウトラインがないかを判定します。",
+    "Lang Attribute": "html要素のlang属性を確認します。文書言語を検索エンジン、ブラウザ、スクリーンリーダーへ明示する国際化・アクセシビリティ上の基本設定です。",
+    "Image Alt": "img要素のalt属性を確認します。画像検索・アクセシビリティに必要な代替テキストで、意味のある画像と装飾画像を適切に区別します。",
+    "Viewport": "meta viewportを確認します。モバイル端末でのCSS viewportを正しく設定し、レスポンシブレンダリングを成立させる基本要件です。",
+    "Schema Markup": "JSON-LD / Microdataの構造化データを検出し、JSON-LDの構文妥当性とSchema.orgの@typeを確認します。Google Rich Results Testの代替ではありません。",
+    "HTML Validity": "DOM構造上の重大なHTML不整合を確認します。壊れたマークアップはレンダリング、アクセシビリティ、クローラ解釈に影響する可能性があります。",
+    "SEO Score": "Lighthouse SEOカテゴリの監査スコアです。インデックス可否、リンク、メタ情報、モバイル対応など基礎実装をラボ環境で検査します。順位スコアではありません。",
+    "Performance Score": "LighthouseのPerformanceカテゴリ総合スコアです。FCP、LCP、TBT等を基にラボ環境でレンダリング性能を評価します。",
+    "LCP": "Largest Contentful Paint。viewport内の主要コンテンツが描画されるまでの時間で、Core Web Vitalsの主要指標です。ラボ値では2.5秒以下を良好の目安とします。",
+    "CLS": "Cumulative Layout Shift。ページ表示中の予期しないレイアウトシフト量を示すCore Web Vitals指標で、0.1以下を良好の目安とします。",
+    "TBT": "Total Blocking Time。FCP以降にメインスレッドを50ms超ブロックしたLong Taskの超過時間合計で、JavaScript実行負荷の診断に使います。",
+}
+
+
 def _row(
     no,
     category,
@@ -94,7 +118,7 @@ def _row(
         "Item": item,
         "Status": status,
         "Result": result,
-        "Meaning": meaning,
+        "Meaning": TECHNICAL_MEANINGS.get(item, meaning),
         "Action": (
             "対応不要"
             if status == "OK"
@@ -204,7 +228,9 @@ def build_checks(
     if not canonical:
         canonical_status = "NG"
         canonical_result = "canonicalなし"
-    elif _normalize_url(canonical) == _normalize_url(url):
+    elif _normalize_url(canonical) == _normalize_url(
+        page_data.get("final_url") or url
+    ):
         canonical_status = "OK"
         canonical_result = canonical
     else:
@@ -307,27 +333,25 @@ def build_checks(
         h1_text = seo_row.get("h1", "")
         h1_count = 1 if h1_text else 0
 
+    h1_status = (
+        "OK"
+        if h1_count == 1
+        else ("NG" if h1_count == 0 else "△")
+    )
+    h1_texts = page_data.get("h1_texts", []) if page_data.get("ok") else []
+    h1_result = f"{h1_count}個"
+    if h1_texts:
+        h1_result += " / " + " | ".join(h1_texts[:2])
+
     checks.append(
         _row(
             9,
             "Content Structure",
             "H1",
-            "OK" if h1_count >= 1 else "NG",
-            f"{h1_count}個",
+            h1_status,
+            h1_result,
             "ページの主題を示す最上位見出しです。",
-            "ページ内容を代表するH1を明示してください。",
-        )
-    )
-
-    checks.append(
-        _row(
-            10,
-            "Content Structure",
-            "H1 Count",
-            "OK" if h1_count == 1 else "△",
-            f"{h1_count}個",
-            "H1が複数でも直ちにSEO違反ではありませんが、1ページの主題を明確にする観点で確認します。",
-            "意図なく複数H1を使用している場合は、主見出しを1つに整理し、下位見出しをH2/H3へ変更してください。",
+            "H1が0件ならページ主題を示すH1を追加してください。複数ある場合は、意図した文書構造か確認し、必要に応じて主見出しを1つに整理してください。",
         )
     )
 
@@ -352,7 +376,7 @@ def build_checks(
 
     checks.append(
         _row(
-            11,
+            10,
             "Content Structure",
             "Heading Structure",
             heading_status,
@@ -381,7 +405,7 @@ def build_checks(
     )
     checks.append(
         _row(
-            12,
+            11,
             "HTML",
             "Lang Attribute",
             lang_status,
@@ -417,7 +441,7 @@ def build_checks(
 
     checks.append(
         _row(
-            13,
+            12,
             "HTML",
             "Image Alt",
             alt_status,
@@ -434,13 +458,46 @@ def build_checks(
     )
     checks.append(
         _row(
-            14,
+            13,
             "Mobile",
             "Viewport",
             "OK" if viewport else "NG",
             viewport or "未設定",
             "モバイル端末でページを適切な幅・倍率で表示するための基本設定です。",
             "head内にmeta viewportを設定し、レスポンシブ表示を確認してください。",
+        )
+    )
+
+    schema_jsonld_count = page_data.get("schema_jsonld_count", 0)
+    schema_microdata_count = page_data.get("microdata_count", 0)
+    schema_errors = page_data.get("schema_errors", [])
+    schema_types = page_data.get("schema_types", [])
+    total_schema = schema_jsonld_count + schema_microdata_count
+
+    if schema_errors:
+        schema_status = "NG"
+        schema_result = " / ".join(schema_errors[:2])
+    elif total_schema > 0:
+        schema_status = "OK"
+        type_text = ", ".join(schema_types[:6]) if schema_types else "type未取得"
+        schema_result = (
+            f"JSON-LD {schema_jsonld_count}件 / "
+            f"Microdata {schema_microdata_count}件 / "
+            f"@type: {type_text}"
+        )
+    else:
+        schema_status = "△"
+        schema_result = "構造化データを検出せず"
+
+    checks.append(
+        _row(
+            14,
+            "Structured Data",
+            "Schema Markup",
+            schema_status,
+            schema_result,
+            "構造化データを検証します。",
+            "JSON-LDの構文エラーがある場合は修正してください。未実装の場合は、このページがArticle、Product、BreadcrumbList、FAQPage等のSchema.orgマークアップ対象かを確認し、検索機能上のメリットがある場合のみ実装してください。",
         )
     )
 
@@ -600,8 +657,8 @@ def counts(checks):
 
 def markdown_table(checks):
     lines = [
-        "| No | 分類 | チェック項目 | 判定 | 結果 | 項目の意味 | 修正コメント |",
-        "|---:|---|---|:---:|---|---|---|",
+        "| No | 分類 | チェック項目 | 説明 | 判定 | 結果 | 修正コメント |",
+        "|---:|---|---|---|:---:|---|---|",
     ]
 
     for row in checks:
@@ -609,9 +666,9 @@ def markdown_table(checks):
             str(row["No"]),
             row["Category"],
             row["Item"],
+            row["Meaning"],
             row["Status"],
             row["Result"],
-            row["Meaning"],
             row["Action"],
         ]
 
@@ -625,6 +682,88 @@ def markdown_table(checks):
         )
 
     return "\n".join(lines)
+
+
+def html_table(checks):
+    import html
+
+    rows = []
+    for row in checks:
+        status = row["Status"]
+        status_class = {
+            "OK": "status-ok",
+            "△": "status-warn",
+            "NG": "status-ng",
+        }.get(status, "")
+
+        rows.append(
+            "<tr>"
+            f"<td class='num'>{row['No']}</td>"
+            f"<td>{html.escape(str(row['Category']))}</td>"
+            f"<td class='item'>{html.escape(str(row['Item']))}</td>"
+            f"<td class='desc'>{html.escape(str(row['Meaning']))}</td>"
+            f"<td class='judge {status_class}'>{html.escape(str(status))}</td>"
+            f"<td>{html.escape(str(row['Result']))}</td>"
+            f"<td>{html.escape(str(row['Action']))}</td>"
+            "</tr>"
+        )
+
+    return """
+    <style>
+    .seo-report-table-wrap { overflow-x:auto; }
+    table.seo-report-table {
+        width:100%;
+        border-collapse:collapse;
+        font-size:14px;
+        line-height:1.55;
+    }
+    .seo-report-table th, .seo-report-table td {
+        border:1px solid #e5e7eb;
+        padding:10px 12px;
+        vertical-align:top;
+        text-align:left;
+    }
+    .seo-report-table th {
+        background:#f8fafc;
+        font-weight:700;
+        white-space:nowrap;
+    }
+    .seo-report-table .num { text-align:center; width:42px; }
+    .seo-report-table .item { font-weight:600; min-width:130px; }
+    .seo-report-table .desc {
+        font-size:12px;
+        line-height:1.45;
+        color:#475569;
+        min-width:260px;
+    }
+    .seo-report-table .judge {
+        text-align:center;
+        font-weight:700;
+        white-space:nowrap;
+    }
+    .seo-report-table .status-ok { color:#15803d; }
+    .seo-report-table .status-warn { color:#a16207; }
+    .seo-report-table .status-ng { color:#b91c1c; }
+    </style>
+    <div class="seo-report-table-wrap">
+    <table class="seo-report-table">
+      <thead>
+        <tr>
+          <th>No</th>
+          <th>分類</th>
+          <th>チェック項目</th>
+          <th>説明</th>
+          <th>判定</th>
+          <th>結果</th>
+          <th>修正コメント</th>
+        </tr>
+      </thead>
+      <tbody>
+    """ + "".join(rows) + """
+      </tbody>
+    </table>
+    </div>
+    """
 
 
 def build_copy_report(
