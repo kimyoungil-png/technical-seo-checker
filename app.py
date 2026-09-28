@@ -1,6 +1,188 @@
 import os
 import streamlit as st
 
+import re
+
+
+def _status_icon(value):
+    if value is True:
+        return "✅"
+    if value is False:
+        return "⚠️"
+    return "—"
+
+
+def _find_bool(text, positive_patterns, negative_patterns):
+    lower = (text or "").lower()
+
+    for pattern in negative_patterns:
+        if re.search(pattern, lower, re.IGNORECASE):
+            return False
+
+    for pattern in positive_patterns:
+        if re.search(pattern, lower, re.IGNORECASE):
+            return True
+
+    return None
+
+
+def parse_siteone_summary(text):
+    lower = (text or "").lower()
+
+    status_200 = bool(
+        re.search(r"\bstatus(?:\s*code)?\s*[:=]?\s*200\b", lower)
+        or re.search(r"\bhttp\s*200\b", lower)
+        or re.search(r"\b200\s+ok\b", lower)
+    )
+
+    indexable = _find_bool(
+        text,
+        [
+            r"indexable",
+            r"no\s+noindex",
+            r"not\s+blocked\s+by\s+robots",
+        ],
+        [
+            r"noindex",
+            r"not\s+indexable",
+            r"blocked\s+by\s+robots",
+        ],
+    )
+
+    canonical = _find_bool(
+        text,
+        [
+            r"canonical.+(?:ok|valid|self)",
+            r"has\s+(?:a\s+)?canonical",
+            r"canonical\s+url",
+        ],
+        [
+            r"missing\s+canonical",
+            r"no\s+canonical",
+            r"multiple\s+canonical",
+            r"invalid\s+canonical",
+        ],
+    )
+
+    meta_description = _find_bool(
+        text,
+        [
+            r"meta\s+description.+(?:ok|valid|present|provided)",
+            r"has\s+(?:a\s+)?meta\s+description",
+        ],
+        [
+            r"missing\s+meta\s+description",
+            r"no\s+meta\s+description",
+            r"empty\s+meta\s+description",
+            r"meta\s+description.+(?:too\s+short|too\s+long)",
+        ],
+    )
+
+    h1 = _find_bool(
+        text,
+        [
+            r"all\s+pages\s+have\s+<h1>\s+heading",
+            r"single\s+h1",
+            r"h1.+(?:ok|valid|present)",
+        ],
+        [
+            r"without\s+<h1>",
+            r"missing\s+h1",
+            r"multiple\s+<h1>",
+            r"multiple\s+h1",
+        ],
+    )
+
+    return {
+        "status_200": status_200,
+        "indexable": indexable,
+        "canonical": canonical,
+        "meta_description": meta_description,
+        "h1": h1,
+    }
+
+
+def render_indexability_summary(siteone_text):
+    summary = parse_siteone_summary(siteone_text)
+
+    st.markdown("### Indexability")
+
+    rows = [
+        (
+            "Status 200",
+            summary["status_200"],
+            "URLが正常に200レスポンスを返しているか。クロール・インデックスの前提条件です。",
+        ),
+        (
+            "Indexable",
+            summary["indexable"],
+            "noindexやrobots制御などで検索エンジンのインデックス対象外になっていないかを確認します。",
+        ),
+        (
+            "Canonical",
+            summary["canonical"],
+            "重複URLがある場合に、検索エンジンへ正規URLを示す指定です。",
+        ),
+        (
+            "Meta Description",
+            summary["meta_description"],
+            "検索結果の説明文候補です。未設定・空欄・極端な長短は改善対象になります。",
+        ),
+        (
+            "H1",
+            summary["h1"],
+            "ページの主題を示す主要見出しです。基本的にはページ内容を代表するH1が1つある状態が望ましいです。",
+        ),
+    ]
+
+    for label, value, meaning in rows:
+        if label == "Status 200":
+            icon = "✅" if value else "⚠️"
+        else:
+            icon = _status_icon(value)
+
+        st.markdown(f"**{icon} {label}**")
+        st.caption(meaning)
+
+
+def render_performance_summary(metrics):
+    st.markdown("### Performance")
+
+    performance = metrics.get("performance")
+    seo = metrics.get("seo")
+    lcp = metrics.get("lcp")
+    cls = metrics.get("cls")
+
+    st.markdown(f"**{score_label(performance)} Performance**")
+    st.caption(
+        "ページ表示速度やメインスレッドの負荷などを総合したLighthouseのラボスコアです。"
+    )
+
+    st.markdown(f"**{score_label(seo)} SEO**")
+    st.caption(
+        "Lighthouseが確認できる基本的なSEO実装のスコアです。検索順位そのものを示す値ではありません。"
+    )
+
+    lcp_ms = metrics.get("lcpMs")
+    lcp_icon = "—"
+    if isinstance(lcp_ms, (int, float)):
+        lcp_icon = "✅" if lcp_ms <= 2500 else ("⚠️" if lcp_ms <= 4000 else "❌")
+
+    st.markdown(f"**{lcp_icon} LCP {metric_label(lcp)}**")
+    st.caption(
+        "主要コンテンツが表示されるまでの時間です。画像最適化、サーバー応答、レンダリング遅延の影響を受けます。"
+    )
+
+    cls_value = metrics.get("clsValue")
+    cls_icon = "—"
+    if isinstance(cls_value, (int, float)):
+        cls_icon = "✅" if cls_value <= 0.1 else ("⚠️" if cls_value <= 0.25 else "❌")
+
+    st.markdown(f"**{cls_icon} CLS {metric_label(cls)}**")
+    st.caption(
+        "読み込み中のレイアウトのズレを示します。画像サイズ未指定や後挿入UIなどが主な原因です。"
+    )
+
 from siteone_runner import run_siteone
 from unlighthouse_runner import run_unlighthouse
 from ai_advisor import generate_ai_advice, DEFAULT_MODEL
@@ -196,6 +378,10 @@ if st.button(
                 )
 
                 if siteone_text:
+                    render_indexability_summary(
+                        siteone_text
+                    )
+
                     with st.expander(
                         "SiteOne Crawler 詳細結果",
                         expanded=False
@@ -265,6 +451,10 @@ if st.button(
                         "metrics",
                         {}
                     )
+                )
+
+                render_performance_summary(
+                    metrics
                 )
 
                 st.markdown(
