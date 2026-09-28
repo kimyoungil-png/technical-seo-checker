@@ -4,8 +4,8 @@ from google import genai
 from google.genai import types
 
 
-DEFAULT_MODEL = "gemini-3.8-flash"
-FALLBACK_MODEL = "gemini-3.5-flash-lite"
+DEFAULT_MODEL = "gemini-flash-latest"
+FALLBACK_MODEL = "gemini-3.1-flash-lite"
 
 
 def _call_gemini(client, model, system_prompt, user_prompt):
@@ -14,9 +14,6 @@ def _call_gemini(client, model, system_prompt, user_prompt):
         contents=user_prompt,
         config=types.GenerateContentConfig(
             system_instruction=system_prompt,
-            thinking_config=types.ThinkingConfig(
-                thinking_level="low"
-            ),
             max_output_tokens=500,
         ),
     )
@@ -81,7 +78,11 @@ Lighthouse metrics:
 
     last_error = None
 
-    for delay in (0, 2, 5):
+    # First try the configured/default model. A stale GEMINI_MODEL value
+    # should not break the report, so any model-level failure falls back.
+    primary_attempts = (0, 2, 5) if model == DEFAULT_MODEL else (0, 2)
+
+    for delay in primary_attempts:
         if delay:
             time.sleep(delay)
         try:
@@ -91,16 +92,20 @@ Lighthouse metrics:
                 system_prompt,
                 user_prompt,
             )
+            text = response.text or ""
+            if not text.strip():
+                raise RuntimeError("Gemini returned an empty response")
             return {
-                "text": response.text or "",
+                "text": text,
                 "model": model,
                 "fallback_used": False,
             }
         except Exception as exc:
             last_error = exc
             if not _is_retryable_error(exc):
-                raise
+                break
 
+    # Stable low-cost fallback for short summaries.
     for delay in (0, 3):
         if delay:
             time.sleep(delay)
@@ -111,16 +116,19 @@ Lighthouse metrics:
                 system_prompt,
                 user_prompt,
             )
+            text = response.text or ""
+            if not text.strip():
+                raise RuntimeError("Gemini fallback returned an empty response")
             return {
-                "text": response.text or "",
+                "text": text,
                 "model": FALLBACK_MODEL,
                 "fallback_used": True,
             }
         except Exception as exc:
             last_error = exc
             if not _is_retryable_error(exc):
-                raise
+                break
 
     raise RuntimeError(
-        "Gemini APIが混雑しており、再試行とフォールバックモデルでも応答を取得できませんでした。"
+        f"Gemini APIからまとめを取得できませんでした: {last_error}"
     ) from last_error
