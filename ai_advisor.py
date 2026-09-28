@@ -17,20 +17,23 @@ def _call_gemini(client, model, system_prompt, user_prompt):
             thinking_config=types.ThinkingConfig(
                 thinking_level="low"
             ),
-            max_output_tokens=6000,
+            max_output_tokens=3500,
         ),
     )
 
 
 def _is_retryable_error(exc):
     text = str(exc).upper()
-    return (
-        "503" in text
-        or "UNAVAILABLE" in text
-        or "429" in text
-        or "RESOURCE_EXHAUSTED" in text
-        or "DEADLINE_EXCEEDED" in text
-        or "TIMEOUT" in text
+    return any(
+        token in text
+        for token in (
+            "503",
+            "UNAVAILABLE",
+            "429",
+            "RESOURCE_EXHAUSTED",
+            "DEADLINE_EXCEEDED",
+            "TIMEOUT",
+        )
     )
 
 
@@ -40,67 +43,62 @@ def generate_ai_advice(
     metrics: dict,
     api_key: str,
     model: str = DEFAULT_MODEL,
+    checks=None,
 ):
     client = genai.Client(api_key=api_key)
 
-    siteone_excerpt = (siteone_text or "")[:16000]
+    issue_rows = [
+        row
+        for row in (checks or [])
+        if row.get("Status") in ("NG", "△")
+    ]
 
     system_prompt = """
 あなたはシニアテクニカルSEOアナリストです。
-与えられたSiteOne CrawlerとUnlighthouse/Lighthouseの診断結果だけを根拠に、
-日本語で改善提案を作成してください。
+新規公開・更新直後の1ページについてTechnical SEOチェック結果をレビューします。
 
 ルール:
-- 測定結果にない問題を断定しない。
-- Lighthouseはラボデータであり、実ユーザーのCore Web Vitalsそのものではないことを必要に応じて明記する。
-- SEOへの影響、ユーザー体験への影響、実装難易度を分けて考える。
-- 問題がない項目にも「何を意味する指標か」を短く説明する。
-- 改善案はWeb担当者・エンジニアが実行できる具体性にする。
-- SiteOneの英語ログは必要に応じて日本語で要約する。
-- URLや測定値を勝手に変更しない。
-- 文章は簡潔にし、同じ内容を繰り返さない。
+- 入力されたチェック結果だけを根拠にする。
+- OK項目は原則コメント不要。
+- NGと△を優先度順に整理する。
+- 修正方法はWeb担当者・エンジニアがそのまま作業指示に使える具体性にする。
+- Lighthouseはラボデータであり、実ユーザーのCore Web Vitalsそのものではない。
+- 推測で問題を追加しない。
+- 20項目を繰り返し説明しない。
+- 日本語で簡潔に書く。
 
 出力形式:
 ## 総合所見
-2〜4文。
+3〜5文。
 
-## 優先改善項目
-重要度の高い順に、各項目を以下の形で記載。
+## 優先修正 TOP3
+最大3項目。各項目は以下の形式。
 ### 項目名
-- 判定: OK / 注意 / 要改善
-- 意味:
-- 今回の結果:
-- 改善方法:
-- 改善後の確認方法:
+- 優先度: 高 / 中
+- 問題:
+- 修正:
+- 確認:
 
-## Lighthouse指標の解説
-Performance / SEO / Accessibility / Best Practices / LCP / CLS / FCP / TBT を、
-今回の数値と関連付けて簡潔に説明。
-
-## すぐ対応できること
-実装負荷が比較的小さいものを最大3件。
+## 補足
+必要な場合のみ2〜4文。
 """
 
     user_prompt = f"""
 対象URL:
 {url}
 
-Unlighthouse / Lighthouse metrics:
+NG・△項目:
+{json.dumps(issue_rows, ensure_ascii=False, indent=2)}
+
+Lighthouse metrics:
 {json.dumps(metrics or {}, ensure_ascii=False, indent=2)}
-
-SiteOne Crawler result:
-{siteone_excerpt}
 """
-
-    # Primary model: short exponential backoff.
-    delays = [0, 2, 5]
 
     last_error = None
 
-    for delay in delays:
+    for delay in (0, 2, 5):
         if delay:
             time.sleep(delay)
-
         try:
             response = _call_gemini(
                 client,
@@ -118,13 +116,9 @@ SiteOne Crawler result:
             if not _is_retryable_error(exc):
                 raise
 
-    # If the primary model is overloaded, switch to a lighter stable model.
-    fallback_delays = [0, 3]
-
-    for delay in fallback_delays:
+    for delay in (0, 3):
         if delay:
             time.sleep(delay)
-
         try:
             response = _call_gemini(
                 client,
