@@ -56,16 +56,6 @@ generate_ai = st.checkbox(
     key="input_generate_ai",
 )
 
-ppt_template = st.file_uploader(
-    "PowerPointテンプレート（任意）",
-    type=["pptx"],
-    help=(
-        "指定したPPTのデザインを維持し、各URLの結果だけを差し替えます。"
-        "未指定の場合はサーバー側テンプレートを使用します。"
-    ),
-    key="ppt_template_upload",
-)
-
 
 def get_secret(name):
     try:
@@ -179,7 +169,7 @@ def run_audit(target_url, use_lighthouse, use_ai):
     }
 
 
-def build_ppt_for_audits(audits, uploaded_template=None):
+def build_ppt_for_audits(audits):
     report_payload = [
         {
             "url": audit["url"],
@@ -188,12 +178,6 @@ def build_ppt_for_audits(audits, uploaded_template=None):
         }
         for audit in audits
     ]
-
-    if uploaded_template is not None:
-        return build_multi_ppt_report_from_template(
-            reports=report_payload,
-            template_bytes=uploaded_template.getvalue(),
-        )
 
     return build_multi_ppt_report_from_default_template(
         reports=report_payload,
@@ -260,7 +244,7 @@ if st.button("Technical SEOチェック開始", type="primary"):
 
     with st.spinner(f"{len(audit_results)}ページのPowerPointを自動生成中..."):
         try:
-            ppt_result = build_ppt_for_audits(audit_results, ppt_template)
+            ppt_result = build_ppt_for_audits(audit_results)
             st.session_state["ppt_report"] = ppt_result
             st.success(f"{len(audit_results)}ページのPowerPointを生成しました。")
             for warning in ppt_result.get("warnings", []):
@@ -402,11 +386,11 @@ if audits:
                 st.write(f"{error['url']}: {error['error']}")
 
     st.subheader("PowerPoint再生成")
-    st.write("テンプレートを差し替えた場合などは、ここから再生成できます。")
+    st.write("固定テンプレートを使って、同じ内容を再生成できます。")
     if st.button("PPTを再生成", key="regenerate_ppt_report"):
         with st.spinner(f"{len(audits)}ページのPowerPointを再生成中..."):
             try:
-                ppt_result = build_ppt_for_audits(audits, ppt_template)
+                ppt_result = build_ppt_for_audits(audits)
                 st.session_state["ppt_report"] = ppt_result
                 st.success(f"{len(audits)}ページのPowerPointを再生成しました。")
             except Exception as e:
