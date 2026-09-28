@@ -1,10 +1,12 @@
 import base64
 import io
 import json
+import os
 import tempfile
 import urllib.error
 import urllib.request
 from datetime import datetime
+from pathlib import Path
 from urllib.parse import urlparse
 
 from pptx import Presentation
@@ -24,6 +26,7 @@ CLOUD_RUN_REPORT_API = (
 )
 
 PPT_FONT_FACE = "Meiryo UI"
+DEFAULT_TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "technical_seo_template.pptx"
 
 
 def _post_json(api_url: str, payload: dict, timeout: int = 120):
@@ -63,6 +66,23 @@ def _get_mobile_screenshot(url: str) -> bytes:
     return base64.b64decode(encoded)
 
 
+def _load_server_template_bytes() -> bytes:
+    template_path = Path(os.getenv("PPT_TEMPLATE_PATH", str(DEFAULT_TEMPLATE_PATH)))
+
+    if template_path.exists():
+        return template_path.read_bytes()
+
+    template_b64 = os.getenv("PPT_TEMPLATE_BASE64", "").strip()
+    if template_b64:
+        return base64.b64decode(template_b64)
+
+    raise RuntimeError(
+        "サーバー側PowerPointテンプレートが見つかりません。"
+        " templates/technical_seo_template.pptx を配置するか、"
+        " PPT_TEMPLATE_PATH / PPT_TEMPLATE_BASE64 を設定してください。"
+    )
+
+
 def _set_cell_text(cell, text, font_size=6, bold=False, color="000000", align=None):
     cell.text = ""
     paragraph = cell.text_frame.paragraphs[0]
@@ -78,11 +98,9 @@ def _set_cell_text(cell, text, font_size=6, bold=False, color="000000", align=No
 
 def _status_color(status: str):
     if status == "OK":
-        return "008A3D"
-    if status == "NG":
+        return "003CFF"
+    if status in {"NG", "△"}:
         return "D00000"
-    if status == "△":
-        return "B36B00"
     return "555555"
 
 
@@ -130,8 +148,6 @@ def _fill_table(slide, checks):
 
     table = table_shape.table
 
-    # Keep No / チェック項目 / 説明 columns as template structure.
-    # Only swap the 判定 and 結果 columns: col 3 = 結果, col 4 = 判定.
     _set_cell_text(table.cell(0, 0), "No", 8, True, align=PP_ALIGN.CENTER)
     _set_cell_text(table.cell(0, 1), "チェック項目", 8, True, align=PP_ALIGN.CENTER)
     _set_cell_text(table.cell(0, 2), "", 8, True, align=PP_ALIGN.CENTER)
@@ -154,17 +170,16 @@ def _fill_table(slide, checks):
         _set_cell_text(table.cell(ppt_row, 0), row.get("No"), 7, False, align=PP_ALIGN.CENTER)
         _set_cell_text(table.cell(ppt_row, 1), row.get("Item"), 7, True)
         _set_cell_text(table.cell(ppt_row, 2), row.get("Meaning"), 5, False)
-        _set_cell_text(table.cell(ppt_row, 3), result_text, 5, False)
+        _set_cell_text(table.cell(ppt_row, 3), result_text, 7, False)
         _set_cell_text(
             table.cell(ppt_row, 4),
             status,
-            7,
+            8,
             True,
             color=_status_color(status),
             align=PP_ALIGN.CENTER,
         )
 
-    # Clear unused template rows when Lighthouse is OFF etc.
     for ppt_row in range(max_rows + 1, len(table.rows)):
         for col in range(len(table.columns)):
             table.cell(ppt_row, col).text = ""
@@ -180,7 +195,6 @@ def _add_screenshot_behind_phone_frame(slide, screenshot_bytes: bytes):
     width = phone_shape.width
     height = phone_shape.height
 
-    # Place screenshot inside the transparent phone-frame window.
     shot_left = left + int(width * 0.09)
     shot_top = top + int(height * 0.06)
     shot_width = int(width * 0.82)
@@ -198,7 +212,6 @@ def _add_screenshot_behind_phone_frame(slide, screenshot_bytes: bytes):
         height=shot_height,
     )
 
-    # Move screenshot behind the phone-frame picture so the provided frame stays on top.
     sp_tree = slide.shapes._spTree
     sp_tree.remove(pic._element)
     sp_tree.insert(2, pic._element)
@@ -226,6 +239,19 @@ def build_ppt_report_from_template(
         "bytes": output.read(),
         "filename": "technical-seo-report.pptx",
     }
+
+
+def build_ppt_report_from_default_template(
+    url: str,
+    checks: list[dict],
+    summary: str = "",
+):
+    return build_ppt_report_from_template(
+        url=url,
+        checks=checks,
+        summary=summary,
+        template_bytes=_load_server_template_bytes(),
+    )
 
 
 def build_ppt_report(
