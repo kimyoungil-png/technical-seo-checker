@@ -138,15 +138,32 @@ def inspect_page(url: str):
     )
 
     schema_types = []
+    schema_entities = []
     schema_errors = []
 
     def collect_types(value):
         if isinstance(value, dict):
             type_value = value.get("@type")
+            name_value = (
+                value.get("name")
+                or value.get("headline")
+                or value.get("title")
+            )
+
             if isinstance(type_value, list):
-                schema_types.extend(str(v) for v in type_value if v)
+                for schema_type in type_value:
+                    if schema_type:
+                        schema_types.append(str(schema_type))
+                        schema_entities.append({
+                            "type": str(schema_type),
+                            "name": str(name_value).strip() if name_value else "",
+                        })
             elif type_value:
                 schema_types.append(str(type_value))
+                schema_entities.append({
+                    "type": str(type_value),
+                    "name": str(name_value).strip() if name_value else "",
+                })
 
             graph = value.get("@graph")
             if isinstance(graph, list):
@@ -217,6 +234,7 @@ def inspect_page(url: str):
         "viewport": viewport,
         "schema_jsonld_count": len(jsonld_scripts),
         "schema_types": sorted(set(schema_types)),
+        "schema_entities": schema_entities,
         "schema_errors": schema_errors,
         "microdata_count": len(microdata_items),
         "microdata_types": sorted(set(microdata_types)),
