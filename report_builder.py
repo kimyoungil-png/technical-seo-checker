@@ -212,7 +212,7 @@ TECHNICAL_MEANINGS = {
     "H1": "最上位見出しH1の有無と個数を確認します。DOM上の見出しアウトラインとページの主題を明確化するセマンティックHTMLの基本要素です。",
     "Heading Structure": "H1→H2→H3の見出し階層を確認し、heading levelのスキップや不自然なアウトラインがないかを判定します。",
     "Lang Attribute": "html要素のlang属性を確認します。文書言語を検索エンジン、ブラウザ、スクリーンリーダーへ明示する国際化・アクセシビリティ上の基本設定です。",
-    "Image Alt": "img要素のalt属性を確認します。意味のあるコンテンツ画像を優先して判定し、ナビゲーション・UI・装飾用途と推定される画像は参考扱いにします。装飾画像はalt=\"\"が推奨です。",
+    "Image Alt": "コンテンツ画像候補のみを対象に、alt属性の有無を確認します。ナビゲーション・UI・装飾用途と推定される画像は集計・判定から除外します。",
     "Viewport": "meta viewportを確認します。モバイル端末でのCSS viewportを正しく設定し、レスポンシブレンダリングを成立させる基本要件です。",
     "Schema Markup": "JSON-LD / Microdataの構造化データを検出し、JSON-LDの構文妥当性とSchema.orgの@typeを確認します。Google Rich Results Testの代替ではありません。",
     "BreadcrumbList": "Schema.orgのBreadcrumbListを確認し、階層名・position・リンク先がページのパンくず構造と整合しているかを確認します。",
@@ -544,17 +544,12 @@ def build_checks(
     )
 
     if page_data.get("ok"):
-        missing_alt = page_data.get("images_missing_alt", 0)
         priority_missing = page_data.get("images_missing_alt_priority", 0)
-        ui_missing = page_data.get("images_missing_alt_ui", 0)
-        total_images = page_data.get("images_total", 0)
 
         alt_status = "OK" if priority_missing == 0 else "△"
 
         alt_result = (
-            f"このページの画像 {total_images}件 / "
-            f"alt未設定 {missing_alt}件 "
-            f"（要確認 {priority_missing}件 / 装飾・UI候補 {ui_missing}件）"
+            f"コンテンツ画像候補のalt未設定 {priority_missing}件"
         )
 
         alt_examples = page_data.get(
@@ -564,7 +559,7 @@ def build_checks(
 
         if alt_examples:
             alt_result += (
-                " / 要確認例: "
+                " / 例: "
                 + " | ".join(
                     example.get("src") or "src取得できず"
                     for example in alt_examples[:3]
@@ -590,7 +585,7 @@ def build_checks(
             alt_status,
             alt_result,
             "画像の内容を検索エンジンと支援技術へ伝える代替テキストです。",
-            "要確認画像には内容を表すaltを設定してください。装飾・UI用途の画像は検索上の重要度が低いため判定対象外としますが、アクセシビリティ上はalt=\"\"、aria-hidden等の適切な実装を推奨します。",
+            "コンテンツ画像候補にaltが未設定の場合は、画像内容を簡潔に説明するaltを設定してください。",
         )
     )
 
