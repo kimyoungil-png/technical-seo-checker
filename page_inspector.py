@@ -153,12 +153,6 @@ def inspect_page(url: str):
         }
 
     images = soup.find_all("img")
-    missing_alt = [
-        img
-        for img in images
-        if not img.has_attr("alt")
-    ]
-
     def image_src(img):
         attrs = (
             "src",
@@ -263,14 +257,11 @@ def inspect_page(url: str):
 
         return any(token in src or token in classes for token in ui_tokens)
 
-    content_image_candidates = []
-    ui_or_decorative_images = []
-
-    for img in images:
-        if is_decorative_or_ui_candidate(img):
-            ui_or_decorative_images.append(img)
-        else:
-            content_image_candidates.append(img)
+    content_image_candidates = [
+        img
+        for img in images
+        if not is_decorative_or_ui_candidate(img)
+    ]
 
     missing_alt_priority = [
         img
