@@ -40,7 +40,7 @@ run_lighthouse = st.checkbox(
 )
 
 generate_ai = st.checkbox(
-    "Geminiによる専門レビューを追加する",
+    "Geminiによるまとめを追加する",
     value=True,
 )
 
@@ -167,7 +167,7 @@ if st.button("Technical SEOチェック開始", type="primary"):
     ai_text = ""
 
     if generate_ai:
-        st.subheader("Gemini 専門レビュー")
+        st.subheader("まとめ")
 
         api_key = get_secret("GEMINI_API_KEY")
         model = get_secret("GEMINI_MODEL") or DEFAULT_MODEL
@@ -178,7 +178,7 @@ if st.button("Technical SEOチェック開始", type="primary"):
                 "GEMINI_API_KEYを設定してください。"
             )
         else:
-            with st.spinner("NG・△項目を中心にGeminiがレビュー中..."):
+            with st.spinner("チェック結果を簡潔にまとめています..."):
                 try:
                     advice_result = generate_ai_advice(
                         url=url,
