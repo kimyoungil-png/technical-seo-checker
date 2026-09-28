@@ -563,7 +563,9 @@ def build_checks(
             alt_result += (
                 " / 例: "
                 + " | ".join(
-                    example.get("src") or "src取得できず"
+                    example.get("filename")
+                    or example.get("src")
+                    or "画像ファイル名を取得できず"
                     for example in alt_examples[:3]
                 )
             )
