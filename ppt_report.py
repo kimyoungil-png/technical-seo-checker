@@ -188,9 +188,14 @@ def _fill_table(slide, checks):
 
 
 def _add_screenshot_behind_phone_frame(slide, screenshot_bytes: bytes):
-    phone_shape = next((shape for shape in slide.shapes if shape.shape_type == 13), None)
-    if phone_shape is None:
-        return
+    # Use the largest picture on the slide as the phone mockup.
+    # The template can contain other small pictures/logos, so relying on
+    # the first picture can place the screenshot in the wrong location.
+    picture_shapes = [shape for shape in slide.shapes if shape.shape_type == 13]
+    if not picture_shapes:
+        raise RuntimeError("Template phone frame was not found")
+
+    phone_shape = max(picture_shapes, key=lambda shape: shape.width * shape.height)
 
     left = phone_shape.left
     top = phone_shape.top
@@ -214,9 +219,13 @@ def _add_screenshot_behind_phone_frame(slide, screenshot_bytes: bytes):
         height=shot_height,
     )
 
+    # Put the screenshot immediately behind the phone frame, not at a
+    # fixed z-order position. This keeps it visible while preserving the
+    # mockup frame above it.
     sp_tree = slide.shapes._spTree
+    phone_index = list(sp_tree).index(phone_shape._element)
     sp_tree.remove(pic._element)
-    sp_tree.insert(2, pic._element)
+    sp_tree.insert(phone_index, pic._element)
 
 
 def _duplicate_template_slide(presentation, source_slide):
@@ -264,9 +273,20 @@ def build_multi_ppt_report_from_template(reports: list[dict], template_bytes: by
     presentation.save(output)
     output.seek(0)
 
+    first_url = str(reports[0].get("url") or "technical-seo")
+    parsed = urlparse(first_url)
+    host = (parsed.netloc or "technical-seo").replace(":", "-")
+    path = (parsed.path or "").strip("/").replace("/", "_")
+    url_label = host if not path else f"{host}_{path}"
+    safe_label = "".join(
+        char if char.isalnum() or char in "._-" else "_"
+        for char in url_label
+    ).strip("._-") or "technical-seo"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+
     return {
         "bytes": output.read(),
-        "filename": "technical-seo-report.pptx",
+        "filename": f"{safe_label}_{timestamp}.pptx",
         "warnings": warnings,
     }
 
