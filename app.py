@@ -46,7 +46,7 @@ generate_ai = st.checkbox(
     "AIによる改善提案も生成する",
     value=True,
     help=(
-        "SiteOneとUnlighthouseの診断結果をOpenAI APIに送り、"
+        "SiteOneとUnlighthouseの診断結果をGemini APIに送り、"
         "項目の意味・優先度・改善方法を日本語で整理します。"
     ),
 )
@@ -401,11 +401,11 @@ if st.button(
         )
 
         api_key = get_secret(
-            "OPENAI_API_KEY"
+            "GEMINI_API_KEY"
         )
 
         model = (
-            get_secret("OPENAI_MODEL")
+            get_secret("GEMINI_MODEL")
             or DEFAULT_MODEL
         )
 
@@ -431,7 +431,7 @@ if st.button(
                     st.markdown(advice)
 
                     st.caption(
-                        f"AI model: {model}"
+                        f"Gemini model: {model}"
                     )
 
                 except Exception as e:
