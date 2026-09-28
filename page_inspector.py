@@ -434,6 +434,7 @@ def inspect_page(url: str):
         "open_graph": open_graph,
         "twitter_card": twitter_card,
         "internal_link_count": len(set(internal_links)),
+        "internal_links": sorted(set(internal_links)),
         "invalid_link_count": len(invalid_links),
         "favicon": favicon,
         "schema_jsonld_count": len(jsonld_scripts),
