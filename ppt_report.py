@@ -200,18 +200,16 @@ def _add_screenshot_fixed(slide, screenshot_bytes: bytes):
         image_file.write(screenshot_bytes)
         image_path = image_file.name
 
-    pic = slide.shapes.add_picture(
+    # add_picture() appends the image at the end of the shape tree, which
+    # makes it frontmost. Do not move it backward: the template contains
+    # large white/background shapes that otherwise cover the screenshot.
+    slide.shapes.add_picture(
         image_path,
         shot_left,
         shot_top,
         width=shot_width,
         height=shot_height,
     )
-
-    # Keep the screenshot behind the phone-frame line shapes and the table.
-    sp_tree = slide.shapes._spTree
-    sp_tree.remove(pic._element)
-    sp_tree.insert(2, pic._element)
 
 
 def _duplicate_template_slide(presentation, source_slide):
@@ -251,6 +249,10 @@ def build_multi_ppt_report_from_template(reports: list[dict], template_bytes: by
 
         try:
             screenshot = _get_mobile_screenshot(url)
+            if len(screenshot) < 1000:
+                raise RuntimeError(
+                    f"Screenshot data is unexpectedly small ({len(screenshot)} bytes)"
+                )
             _add_screenshot_fixed(slide, screenshot)
         except Exception as exc:
             warnings.append(f"{url}: モバイルスクリーンショット取得失敗 ({exc})")
