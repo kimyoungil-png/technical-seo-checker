@@ -28,6 +28,15 @@ url = st.text_input(
     placeholder="https://www.example.com/page/",
 )
 
+run_lighthouse = st.checkbox(
+    "Lighthouse（Performance計測）も実行する",
+    value=False,
+    help=(
+        "Lighthouseはブラウザ計測を伴うため、通常チェックより時間がかかり、"
+        "一時的に失敗することがあります。必要なときだけONにしてください。"
+    ),
+)
+
 generate_ai = st.checkbox(
     "Geminiによる専門レビューを追加する",
     value=True,
@@ -58,11 +67,15 @@ if st.button("Technical SEOチェック開始", type="primary"):
     siteone_text = ""
     siteone_data = {}
     metrics = {}
+    lighthouse_status = "skipped"
+    lighthouse_error = ""
 
-    with st.spinner("1/3 ページ情報を確認中..."):
+    total_steps = 3 if run_lighthouse else 2
+
+    with st.spinner(f"1/{total_steps} ページ情報を確認中..."):
         page_data = inspect_page(url)
 
-    with st.spinner("2/3 SiteOne CrawlerでTechnical SEOを確認中..."):
+    with st.spinner(f"2/{total_steps} SiteOne CrawlerでTechnical SEOを確認中..."):
         try:
             siteone_result = run_siteone(url)
             siteone_text = (
@@ -74,21 +87,43 @@ if st.button("Technical SEOチェック開始", type="primary"):
         except Exception as e:
             st.warning(f"SiteOne Crawlerの一部データを取得できませんでした: {e}")
 
-    with st.spinner("3/3 UnlighthouseでPerformanceを確認中..."):
-        try:
-            unlighthouse_result = run_unlighthouse(url)
-            if unlighthouse_result.get("returncode") == 0:
-                metrics = unlighthouse_result.get("metrics") or {}
-            else:
-                st.warning("Unlighthouseの一部データを取得できませんでした。")
-        except Exception as e:
-            st.warning(f"Unlighthouseの一部データを取得できませんでした: {e}")
+    if run_lighthouse:
+        lighthouse_status = "failed"
+
+        with st.spinner("3/3 LighthouseでPerformanceを確認中..."):
+            try:
+                unlighthouse_result = run_unlighthouse(url)
+
+                if unlighthouse_result.get("returncode") == 0:
+                    metrics = unlighthouse_result.get("metrics") or {}
+                    lighthouse_status = "success"
+                else:
+                    lighthouse_error = (
+                        unlighthouse_result.get("stderr")
+                        or "Lighthouse API error"
+                    )
+                    st.warning(
+                        "Lighthouse計測を完了できませんでした。"
+                        "通常のTechnical SEOチェック結果はそのまま利用できます。"
+                    )
+
+            except Exception as e:
+                lighthouse_error = str(e)
+                st.warning(
+                    "Lighthouse計測を完了できませんでした。"
+                    "通常のTechnical SEOチェック結果はそのまま利用できます。"
+                )
+    else:
+        st.caption(
+            "LighthouseはオプションOFFのため実行していません。"
+        )
 
     checks = build_checks(
         url=url,
         siteone_data=siteone_data,
         page_data=page_data,
         metrics=metrics,
+        lighthouse_status=lighthouse_status,
     )
 
     c = counts(checks)
@@ -105,7 +140,7 @@ if st.button("Technical SEOチェック開始", type="primary"):
     with col3:
         st.metric("NG 要修正", c["NG"])
     with col4:
-        st.metric("— 未取得", c.get("—", 0))
+        st.metric("— 未実施 / 未取得", c.get("—", 0))
 
     if c["NG"] == 0:
         st.success(
@@ -182,8 +217,13 @@ if st.button("Technical SEOチェック開始", type="primary"):
     )
 
     with st.expander("詳細データを見る", expanded=False):
-        st.markdown("#### Lighthouse metrics")
-        st.json(metrics)
+        if run_lighthouse:
+            st.markdown("#### Lighthouse metrics")
+            st.json(metrics)
+
+            if lighthouse_error:
+                st.markdown("#### Lighthouse error")
+                st.code(lighthouse_error)
 
         st.markdown("#### Page inspection")
         st.json(page_data)
