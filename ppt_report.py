@@ -10,11 +10,16 @@ CLOUD_RUN_REPORT_API = (
 )
 
 
-def build_ppt_report(url: str, checks: list[dict]):
+def build_ppt_report(
+    url: str,
+    checks: list[dict],
+    summary: str = "",
+):
     payload = json.dumps(
         {
             "url": url,
             "checks": checks,
+            "summary": summary or "",
         },
         ensure_ascii=False,
     ).encode("utf-8")
