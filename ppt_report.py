@@ -1,5 +1,6 @@
 import base64
 import io
+from copy import deepcopy
 import json
 import os
 import tempfile
@@ -215,6 +216,94 @@ def _add_screenshot_behind_phone_frame(slide, screenshot_bytes: bytes):
     sp_tree = slide.shapes._spTree
     sp_tree.remove(pic._element)
     sp_tree.insert(2, pic._element)
+
+
+
+def _duplicate_template_slide(presentation, source_slide):
+    new_slide = presentation.slides.add_slide(
+        source_slide.slide_layout
+    )
+
+    # Remove placeholders created by the layout; template shapes are copied below.
+    for shape in list(new_slide.shapes):
+        element = shape.element
+        element.getparent().remove(element)
+
+    for shape in source_slide.shapes:
+        cloned = deepcopy(shape.element)
+        new_slide.shapes._spTree.insert_element_before(
+            cloned,
+            "p:extLst",
+        )
+
+    return new_slide
+
+
+def build_multi_ppt_report_from_template(
+    reports: list[dict],
+    template_bytes: bytes,
+):
+    if not reports:
+        raise RuntimeError("PowerPointに出力するレポートがありません。")
+
+    presentation = Presentation(io.BytesIO(template_bytes))
+    template_slide = presentation.slides[0]
+
+    # Duplicate the untouched template slide first so every page has the same design.
+    while len(presentation.slides) < len(reports):
+        _duplicate_template_slide(
+            presentation,
+            template_slide,
+        )
+
+    warnings = []
+
+    for index, report in enumerate(reports):
+        slide = presentation.slides[index]
+        url = str(report.get("url") or "")
+        checks = report.get("checks") or []
+        summary = str(report.get("summary") or "")
+
+        _replace_title_and_summary(
+            slide,
+            url,
+            summary,
+        )
+        _fill_table(
+            slide,
+            checks,
+        )
+
+        try:
+            screenshot = _get_mobile_screenshot(url)
+            _add_screenshot_behind_phone_frame(
+                slide,
+                screenshot,
+            )
+        except Exception as exc:
+            warnings.append(
+                f"{url}: モバイルスクリーンショット取得失敗 ({exc})"
+            )
+
+    output = io.BytesIO()
+    presentation.save(output)
+    output.seek(0)
+
+    return {
+        "bytes": output.read(),
+        "filename": "technical-seo-report.pptx",
+        "warnings": warnings,
+    }
+
+
+def build_multi_ppt_report_from_default_template(
+    reports: list[dict],
+):
+    return build_multi_ppt_report_from_template(
+        reports=reports,
+        template_bytes=_load_server_template_bytes(),
+    )
+
 
 
 def build_ppt_report_from_template(
