@@ -21,11 +21,6 @@ CLOUD_RUN_SCREENSHOT_API = (
     "asia-northeast1.run.app/screenshot"
 )
 
-CLOUD_RUN_REPORT_API = (
-    "https://technical-seo-unlighthouse-api-231228645606."
-    "asia-northeast1.run.app/report-ppt"
-)
-
 PPT_FONT_FACE = "Meiryo UI"
 DEFAULT_TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "technical_seo_template.pptx"
 
@@ -77,10 +72,16 @@ def _load_server_template_bytes() -> bytes:
     if template_b64:
         return base64.b64decode(template_b64)
 
+    try:
+        from default_ppt_template import DEFAULT_PPT_TEMPLATE_B64
+
+        return base64.b64decode(DEFAULT_PPT_TEMPLATE_B64)
+    except Exception:
+        pass
+
     raise RuntimeError(
-        "サーバー側PowerPointテンプレートが見つかりません。"
-        " templates/technical_seo_template.pptx を配置するか、"
-        " PPT_TEMPLATE_PATH / PPT_TEMPLATE_BASE64 を設定してください。"
+        "PowerPointテンプレートが見つかりません。"
+        " テンプレートをアップロードするか、PPT_TEMPLATE_PATH / PPT_TEMPLATE_BASE64を設定してください。"
     )
 
 
@@ -128,15 +129,15 @@ def _replace_title_and_summary(slide, url: str, summary: str):
         r1 = p1.add_run()
         r1.text = title
         r1.font.name = PPT_FONT_FACE
-        r1.font.size = Pt(16)
-        r1.font.bold = False
+        r1.font.size = Pt(14)
+        r1.font.bold = True
         r1.font.color.rgb = RGBColor.from_string("222222")
 
         p2 = text_frame.add_paragraph()
         r2 = p2.add_run()
         r2.text = summary
         r2.font.name = PPT_FONT_FACE
-        r2.font.size = Pt(16)
+        r2.font.size = Pt(14)
         r2.font.bold = True
         r2.font.color.rgb = RGBColor.from_string("0432FF")
         return
@@ -152,8 +153,8 @@ def _fill_table(slide, checks):
     _set_cell_text(table.cell(0, 0), "No", 8, True, align=PP_ALIGN.CENTER)
     _set_cell_text(table.cell(0, 1), "チェック項目", 8, True, align=PP_ALIGN.CENTER)
     _set_cell_text(table.cell(0, 2), "", 8, True, align=PP_ALIGN.CENTER)
-    _set_cell_text(table.cell(0, 3), "結果", 8, True, align=PP_ALIGN.CENTER)
-    _set_cell_text(table.cell(0, 4), "判定", 8, True, align=PP_ALIGN.CENTER)
+    _set_cell_text(table.cell(0, 3), "判定", 8, True, align=PP_ALIGN.CENTER)
+    _set_cell_text(table.cell(0, 4), "結果", 8, True, align=PP_ALIGN.CENTER)
 
     max_rows = min(len(checks), len(table.rows) - 1)
 
@@ -171,15 +172,15 @@ def _fill_table(slide, checks):
         _set_cell_text(table.cell(ppt_row, 0), row.get("No"), 7, False, align=PP_ALIGN.CENTER)
         _set_cell_text(table.cell(ppt_row, 1), row.get("Item"), 7, True)
         _set_cell_text(table.cell(ppt_row, 2), row.get("Meaning"), 5, False)
-        _set_cell_text(table.cell(ppt_row, 3), result_text, 7, False)
         _set_cell_text(
-            table.cell(ppt_row, 4),
+            table.cell(ppt_row, 3),
             status,
             8,
             True,
             color=_status_color(status),
             align=PP_ALIGN.CENTER,
         )
+        _set_cell_text(table.cell(ppt_row, 4), result_text, 7, False)
 
     for ppt_row in range(max_rows + 1, len(table.rows)):
         for col in range(len(table.columns)):
@@ -218,43 +219,29 @@ def _add_screenshot_behind_phone_frame(slide, screenshot_bytes: bytes):
     sp_tree.insert(2, pic._element)
 
 
-
 def _duplicate_template_slide(presentation, source_slide):
-    new_slide = presentation.slides.add_slide(
-        source_slide.slide_layout
-    )
+    new_slide = presentation.slides.add_slide(source_slide.slide_layout)
 
-    # Remove placeholders created by the layout; template shapes are copied below.
     for shape in list(new_slide.shapes):
         element = shape.element
         element.getparent().remove(element)
 
     for shape in source_slide.shapes:
         cloned = deepcopy(shape.element)
-        new_slide.shapes._spTree.insert_element_before(
-            cloned,
-            "p:extLst",
-        )
+        new_slide.shapes._spTree.insert_element_before(cloned, "p:extLst")
 
     return new_slide
 
 
-def build_multi_ppt_report_from_template(
-    reports: list[dict],
-    template_bytes: bytes,
-):
+def build_multi_ppt_report_from_template(reports: list[dict], template_bytes: bytes):
     if not reports:
         raise RuntimeError("PowerPointに出力するレポートがありません。")
 
     presentation = Presentation(io.BytesIO(template_bytes))
     template_slide = presentation.slides[0]
 
-    # Duplicate the untouched template slide first so every page has the same design.
     while len(presentation.slides) < len(reports):
-        _duplicate_template_slide(
-            presentation,
-            template_slide,
-        )
+        _duplicate_template_slide(presentation, template_slide)
 
     warnings = []
 
@@ -264,26 +251,14 @@ def build_multi_ppt_report_from_template(
         checks = report.get("checks") or []
         summary = str(report.get("summary") or "")
 
-        _replace_title_and_summary(
-            slide,
-            url,
-            summary,
-        )
-        _fill_table(
-            slide,
-            checks,
-        )
+        _replace_title_and_summary(slide, url, summary)
+        _fill_table(slide, checks)
 
         try:
             screenshot = _get_mobile_screenshot(url)
-            _add_screenshot_behind_phone_frame(
-                slide,
-                screenshot,
-            )
+            _add_screenshot_behind_phone_frame(slide, screenshot)
         except Exception as exc:
-            warnings.append(
-                f"{url}: モバイルスクリーンショット取得失敗 ({exc})"
-            )
+            warnings.append(f"{url}: モバイルスクリーンショット取得失敗 ({exc})")
 
     output = io.BytesIO()
     presentation.save(output)
@@ -296,76 +271,8 @@ def build_multi_ppt_report_from_template(
     }
 
 
-def build_multi_ppt_report_from_default_template(
-    reports: list[dict],
-):
+def build_multi_ppt_report_from_default_template(reports: list[dict]):
     return build_multi_ppt_report_from_template(
         reports=reports,
         template_bytes=_load_server_template_bytes(),
     )
-
-
-
-def build_ppt_report_from_template(
-    url: str,
-    checks: list[dict],
-    summary: str,
-    template_bytes: bytes,
-):
-    screenshot = _get_mobile_screenshot(url)
-    presentation = Presentation(io.BytesIO(template_bytes))
-    slide = presentation.slides[0]
-
-    _replace_title_and_summary(slide, url, summary)
-    _fill_table(slide, checks)
-    _add_screenshot_behind_phone_frame(slide, screenshot)
-
-    output = io.BytesIO()
-    presentation.save(output)
-    output.seek(0)
-
-    return {
-        "bytes": output.read(),
-        "filename": "technical-seo-report.pptx",
-    }
-
-
-def build_ppt_report_from_default_template(
-    url: str,
-    checks: list[dict],
-    summary: str = "",
-):
-    return build_ppt_report_from_template(
-        url=url,
-        checks=checks,
-        summary=summary,
-        template_bytes=_load_server_template_bytes(),
-    )
-
-
-def build_ppt_report(
-    url: str,
-    checks: list[dict],
-    summary: str = "",
-):
-    data = _post_json(
-        CLOUD_RUN_REPORT_API,
-        {
-            "url": url,
-            "checks": checks,
-            "summaryText": summary or "",
-        },
-        timeout=120,
-    )
-
-    if not data.get("success"):
-        raise RuntimeError(data.get("error") or "PowerPoint generation failed")
-
-    encoded = data.get("fileBase64")
-    if not encoded:
-        raise RuntimeError("PowerPoint data was not returned")
-
-    return {
-        "bytes": base64.b64decode(encoded),
-        "filename": data.get("filename") or "technical-seo-report.pptx",
-    }
