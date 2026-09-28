@@ -25,11 +25,23 @@ st.write(
     "LighthouseをONにした場合のみPerformance 3項目を追加します。"
 )
 
-url = st.text_input(
-    "チェックするURL",
-    placeholder="https://www.example.com/page/",
-    key="input_url",
+urls_text = st.text_area(
+    "チェックするURL（1行に1URL、最大5件）",
+    placeholder=(
+        "https://www.example.com/page-1/\n"
+        "https://www.example.com/page-2/"
+    ),
+    key="input_urls",
+    height=140,
 )
+
+urls = [
+    line.strip()
+    for line in urls_text.splitlines()
+    if line.strip()
+]
+
+url = urls[0] if urls else ""
 
 run_lighthouse = st.checkbox(
     "Lighthouse（Performance計測）も実行する",
@@ -172,12 +184,30 @@ def run_audit(target_url, use_lighthouse, use_ai):
 
 
 if st.button("Technical SEOチェック開始", type="primary"):
+    if len(urls) > 5:
+        st.error("URLは最大5件まで入力できます。")
+        st.stop()
+
+    if run_lighthouse and len(urls) > 1:
+        st.error(
+            "LighthouseをONにした場合は、複数URLをチェックできません。"
+            "LighthouseをOFFにするか、URLを1件だけ入力してください。"
+        )
+        st.stop()
     if not url:
         st.warning("URLを入力してください。")
         st.stop()
 
-    if not url.startswith(("http://", "https://")):
-        st.warning("http:// または https:// から始まるURLを入力してください。")
+    invalid_urls = [
+        item
+        for item in urls
+        if not item.startswith(("http://", "https://"))
+    ]
+
+    if invalid_urls:
+        st.warning(
+            "すべてのURLを http:// または https:// から始めてください。"
+        )
         st.stop()
 
     st.session_state.pop("ppt_report", None)
