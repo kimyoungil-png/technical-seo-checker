@@ -39,17 +39,10 @@ def run_unlighthouse(url: str):
 
             return {
                 "returncode": 0,
-                "stdout": data.get("stdout", ""),
+                "stdout": data.get("message", ""),
                 "stderr": "",
-                "reports": [
-                    {
-                        "data": report
-                    }
-                    for report in data.get(
-                        "reports",
-                        []
-                    )
-                ],
+                "reports": [],
+                "report_count": data.get("reportCount", 0),
             }
 
         return {
