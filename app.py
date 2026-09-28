@@ -6,10 +6,7 @@ from page_inspector import inspect_page
 from report_builder import build_checks, build_copy_report, counts, html_table, tsv_table
 from siteone_runner import run_siteone
 from unlighthouse_runner import run_unlighthouse
-from ppt_report import (
-    build_multi_ppt_report_from_default_template,
-    build_multi_ppt_report_from_template,
-)
+from ppt_report import build_multi_ppt_report_from_default_template
 
 
 st.set_page_config(
@@ -28,8 +25,12 @@ st.write(
     "チェック完了後にPowerPointレポートまで自動生成します。"
 )
 
+MAX_URLS = 10
+SITEONE_DETAIL_CHAR_LIMIT = 50_000
+PAGE_DETAIL_LIST_LIMIT = 100
+
 urls_text = st.text_area(
-    "チェックするURL（1行に1URL、最大5件）",
+    f"チェックするURL（1行に1URL、最大{MAX_URLS}件）",
     placeholder=(
         "https://www.example.com/page-1/\n"
         "https://www.example.com/page-2/"
@@ -138,7 +139,6 @@ def run_audit(target_url, use_lighthouse, use_ai):
                 try:
                     advice_result = generate_ai_advice(
                         url=target_url,
-                        siteone_text=siteone_text,
                         metrics=metrics,
                         api_key=api_key,
                         model=model,
@@ -153,6 +153,20 @@ def run_audit(target_url, use_lighthouse, use_ai):
                         f"{check_count}項目チェック結果はそのまま利用できます。"
                     )
 
+    page_data_for_ui = dict(page_data)
+    internal_links = page_data_for_ui.get("internal_links")
+    if isinstance(internal_links, list) and len(internal_links) > PAGE_DETAIL_LIST_LIMIT:
+        page_data_for_ui["internal_links"] = internal_links[:PAGE_DETAIL_LIST_LIMIT]
+        page_data_for_ui["internal_links_truncated"] = (
+            f"{len(internal_links) - PAGE_DETAIL_LIST_LIMIT}件を省略"
+        )
+
+    if len(siteone_text) > SITEONE_DETAIL_CHAR_LIMIT:
+        siteone_text = (
+            siteone_text[:SITEONE_DETAIL_CHAR_LIMIT]
+            + "\n... (詳細表示用データを省略)"
+        )
+
     return {
         "url": target_url,
         "run_lighthouse": use_lighthouse,
@@ -164,7 +178,7 @@ def run_audit(target_url, use_lighthouse, use_ai):
         "ai_model": ai_model,
         "ai_error": ai_error,
         "metrics": metrics,
-        "page_data": page_data,
+        "page_data": page_data_for_ui,
         "siteone_text": siteone_text,
         "lighthouse_error": lighthouse_error,
     }
@@ -186,8 +200,8 @@ def build_ppt_for_audits(audits):
 
 
 if st.button("Technical SEOチェック開始", type="primary"):
-    if len(urls) > 5:
-        st.error("URLは最大5件まで入力できます。")
+    if len(urls) > MAX_URLS:
+        st.error(f"URLは最大{MAX_URLS}件まで入力できます。")
         st.stop()
 
     if run_lighthouse and len(urls) > 1:
