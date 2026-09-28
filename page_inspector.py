@@ -1,6 +1,7 @@
 import urllib.error
 import urllib.request
 import json
+import re
 from bs4 import BeautifulSoup
 
 
@@ -162,12 +163,33 @@ def inspect_page(url: str):
             schema_errors.append(f"JSON-LD #{index}: empty")
             continue
 
+        cleaned_jsonld = raw_jsonld.strip()
+        cleaned_jsonld = re.sub(
+            r"^\\s*<!--|-->\\s*$",
+            "",
+            cleaned_jsonld,
+        ).strip()
+        cleaned_jsonld = cleaned_jsonld.replace(
+            "/*<![CDATA[*/",
+            "",
+        ).replace(
+            "/*]]>*/",
+            "",
+        ).strip()
+        if cleaned_jsonld.endswith(";"):
+            cleaned_jsonld = cleaned_jsonld[:-1].rstrip()
+
         try:
-            parsed_jsonld = json.loads(raw_jsonld)
+            parsed_jsonld = json.loads(cleaned_jsonld)
             collect_types(parsed_jsonld)
+        except json.JSONDecodeError as exc:
+            schema_errors.append(
+                f"JSON-LD #{index}: 構文エラー "
+                f"(line {exc.lineno}, column {exc.colno})"
+            )
         except Exception as exc:
             schema_errors.append(
-                f"JSON-LD #{index}: invalid JSON ({exc.__class__.__name__})"
+                f"JSON-LD #{index}: 解析エラー ({exc.__class__.__name__})"
             )
 
     microdata_items = soup.find_all(attrs={"itemscope": True})
