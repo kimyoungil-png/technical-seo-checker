@@ -3,6 +3,8 @@ import os
 import subprocess
 import urllib.request
 import tarfile
+import tempfile
+import threading
 from pathlib import Path
 
 SITEONE_VERSION = "2.5.1"
@@ -16,111 +18,114 @@ DOWNLOAD_URL = (
     f"siteone-crawler-v{SITEONE_VERSION}-linux-x64.tar.gz"
 )
 
+_SITEONE_INSTALL_LOCK = threading.Lock()
+
 
 def ensure_siteone():
     if SITEONE_BIN.is_file():
         SITEONE_BIN.chmod(0o755)
         return str(SITEONE_BIN)
 
-    if SITEONE_DIR.exists():
-        import shutil
-        shutil.rmtree(SITEONE_DIR)
+    # Multiple Streamlit sessions can start at the same time. Install once
+    # per process instead of downloading/extracting the same archive in parallel.
+    with _SITEONE_INSTALL_LOCK:
+        if SITEONE_BIN.is_file():
+            SITEONE_BIN.chmod(0o755)
+            return str(SITEONE_BIN)
 
-    SITEONE_DIR.mkdir(parents=True, exist_ok=True)
+        if SITEONE_DIR.exists():
+            import shutil
+            shutil.rmtree(SITEONE_DIR)
 
-    archive_path = "/tmp/siteone.tar.gz"
+        SITEONE_DIR.mkdir(parents=True, exist_ok=True)
+        archive_path = "/tmp/siteone.tar.gz"
 
-    urllib.request.urlretrieve(
-        DOWNLOAD_URL,
-        archive_path,
-    )
-
-    try:
-        with tarfile.open(archive_path, "r:gz") as tar:
-            tar.extractall(SITEONE_DIR)
-    finally:
-        try:
-            os.remove(archive_path)
-        except FileNotFoundError:
-            pass
-
-    candidates = [
-        p
-        for p in SITEONE_DIR.rglob("siteone-crawler")
-        if p.is_file()
-    ]
-
-    if not candidates:
-        raise RuntimeError(
-            "SiteOne Crawlerの実行ファイルが見つかりませんでした。"
+        urllib.request.urlretrieve(
+            DOWNLOAD_URL,
+            archive_path,
         )
 
-    binary = candidates[0]
-    binary.chmod(0o755)
+        try:
+            with tarfile.open(archive_path, "r:gz") as tar:
+                tar.extractall(SITEONE_DIR)
+        finally:
+            try:
+                os.remove(archive_path)
+            except FileNotFoundError:
+                pass
 
-    return str(binary)
+        candidates = [
+            p
+            for p in SITEONE_DIR.rglob("siteone-crawler")
+            if p.is_file()
+        ]
+
+        if not candidates:
+            raise RuntimeError(
+                "SiteOne Crawlerの実行ファイルが見つかりませんでした。"
+            )
+
+        binary = candidates[0]
+        binary.chmod(0o755)
+
+        return str(binary)
 
 
 def run_siteone(url: str):
     binary = ensure_siteone()
 
-    text_file = "/tmp/siteone-result.txt"
-    json_file = "/tmp/siteone-result.json"
+    # Use a per-run temp directory so simultaneous Streamlit sessions never
+    # overwrite each other's SiteOne output. TemporaryDirectory cleans up
+    # report files automatically.
+    with tempfile.TemporaryDirectory(prefix="siteone-run-") as work_dir:
+        text_file = os.path.join(work_dir, "siteone-result.txt")
+        json_file = os.path.join(work_dir, "siteone-result.json")
 
-    for path in (text_file, json_file):
-        if os.path.exists(path):
-            os.remove(path)
+        cmd = [
+            binary,
+            f"--url={url}",
+            "--single-page",
+            f"--output-text-file={text_file}",
+            f"--output-json-file={json_file}",
+            "--no-color",
+        ]
 
-    cmd = [
-        binary,
-        f"--url={url}",
-        "--single-page",
-        f"--output-text-file={text_file}",
-        f"--output-json-file={json_file}",
-        "--no-color",
-    ]
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
 
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
+        text_output = ""
+        json_data = {}
 
-    text_output = ""
-    json_data = {}
-
-    if os.path.exists(text_file):
-        with open(
-            text_file,
-            "r",
-            encoding="utf-8",
-            errors="ignore",
-        ) as f:
-            text_output = f.read()
-
-    if os.path.exists(json_file):
-        try:
+        if os.path.exists(text_file):
             with open(
-                json_file,
+                text_file,
                 "r",
                 encoding="utf-8",
                 errors="ignore",
             ) as f:
-                json_data = json.load(f)
-        except Exception:
-            json_data = {}
+                text_output = f.read()
 
-    for path in (text_file, json_file):
-        try:
-            os.remove(path)
-        except FileNotFoundError:
-            pass
+        if os.path.exists(json_file):
+            try:
+                with open(
+                    json_file,
+                    "r",
+                    encoding="utf-8",
+                    errors="ignore",
+                ) as f:
+                    json_data = json.load(f)
+            except Exception:
+                json_data = {}
 
-    return {
-        "returncode": result.returncode,
-        "stdout": result.stdout,
-        "stderr": result.stderr,
-        "report": text_output,
-        "data": json_data,
-    }
+        return {
+            "returncode": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "report": text_output,
+            "data": json_data,
+        }
+
