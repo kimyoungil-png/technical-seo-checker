@@ -1,8 +1,9 @@
 import json
-from openai import OpenAI
+from google import genai
+from google.genai import types
 
 
-DEFAULT_MODEL = "gpt-5.6-luna"
+DEFAULT_MODEL = "gemini-3.8-flash"
 
 
 def generate_ai_advice(
@@ -12,9 +13,8 @@ def generate_ai_advice(
     api_key: str,
     model: str = DEFAULT_MODEL,
 ):
-    client = OpenAI(api_key=api_key)
+    client = genai.Client(api_key=api_key)
 
-    # APIコストと応答時間を抑えるため、SiteOneログは必要量に制限
     siteone_excerpt = (siteone_text or "")[:16000]
 
     system_prompt = """
@@ -64,19 +64,14 @@ SiteOne Crawler result:
 {siteone_excerpt}
 """
 
-    response = client.responses.create(
+    response = client.models.generate_content(
         model=model,
-        input=[
-            {
-                "role": "system",
-                "content": system_prompt,
-            },
-            {
-                "role": "user",
-                "content": user_prompt,
-            },
-        ],
-        max_output_tokens=2200,
+        contents=user_prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            temperature=0.2,
+            max_output_tokens=2200,
+        ),
     )
 
-    return response.output_text
+    return response.text or ""
