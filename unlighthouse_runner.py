@@ -1,6 +1,7 @@
 import json
-import urllib.request
+import time
 import urllib.error
+import urllib.request
 
 
 CLOUD_RUN_API = (
@@ -9,65 +10,61 @@ CLOUD_RUN_API = (
 )
 
 
-def run_unlighthouse(url: str):
-    payload = json.dumps(
-        {
-            "url": url
-        }
-    ).encode("utf-8")
+def _request_unlighthouse(url: str):
+    payload = json.dumps({"url": url}).encode("utf-8")
 
     request = urllib.request.Request(
         CLOUD_RUN_API,
         data=payload,
-        headers={
-            "Content-Type": "application/json"
-        },
+        headers={"Content-Type": "application/json"},
         method="POST",
     )
 
-    try:
-        with urllib.request.urlopen(
-            request,
-            timeout=180
-        ) as response:
-            body = response.read().decode("utf-8")
+    with urllib.request.urlopen(
+        request,
+        timeout=210,
+    ) as response:
+        body = response.read().decode("utf-8")
 
-        data = json.loads(body)
+    data = json.loads(body)
 
-        if data.get("success"):
-            return {
-                "returncode": 0,
-                "stderr": "",
-                "metrics": data.get("metrics", {}),
-            }
-
+    if data.get("success"):
         return {
-            "returncode": 1,
-            "stderr": (
-                data.get("error")
-                or "Unlighthouse API error"
-            ),
-            "metrics": {},
+            "returncode": 0,
+            "stderr": "",
+            "metrics": data.get("metrics", {}),
         }
 
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode(
-            "utf-8",
-            errors="ignore"
-        )
+    return {
+        "returncode": 1,
+        "stderr": data.get("error") or "Unlighthouse API error",
+        "metrics": {},
+    }
 
-        return {
-            "returncode": 1,
-            "stderr": (
+
+def run_unlighthouse(url: str):
+    last_error = ""
+
+    for attempt in range(2):
+        try:
+            result = _request_unlighthouse(url)
+            if result.get("returncode") == 0:
+                return result
+            last_error = result.get("stderr", "")
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode("utf-8", errors="ignore")
+            last_error = (
                 f"Cloud Run HTTP Error {e.code}\n"
                 f"{error_body}"
-            ),
-            "metrics": {},
-        }
+            )
+        except Exception as e:
+            last_error = str(e)
 
-    except Exception as e:
-        return {
-            "returncode": 1,
-            "stderr": str(e),
-            "metrics": {},
-        }
+        if attempt == 0:
+            time.sleep(3)
+
+    return {
+        "returncode": 1,
+        "stderr": last_error or "Unlighthouse API error",
+        "metrics": {},
+    }
