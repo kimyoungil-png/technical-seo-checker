@@ -97,13 +97,15 @@ if st.button("Technical SEOチェック開始", type="primary"):
     st.header("Technical SEO Check Report")
     st.caption(f"対象URL: {url}")
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("OK", c["OK"])
     with col2:
         st.metric("△ 要確認", c["△"])
     with col3:
         st.metric("NG 要修正", c["NG"])
+    with col4:
+        st.metric("— 未取得", c.get("—", 0))
 
     if c["NG"] == 0:
         st.success(
