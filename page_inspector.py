@@ -1,5 +1,6 @@
 import urllib.error
 import urllib.request
+import json
 from bs4 import BeautifulSoup
 
 
@@ -130,6 +131,52 @@ def inspect_page(url: str):
         else ""
     )
 
+    jsonld_scripts = soup.find_all(
+        "script",
+        attrs={"type": lambda x: x and x.lower() == "application/ld+json"},
+    )
+
+    schema_types = []
+    schema_errors = []
+
+    def collect_types(value):
+        if isinstance(value, dict):
+            type_value = value.get("@type")
+            if isinstance(type_value, list):
+                schema_types.extend(str(v) for v in type_value if v)
+            elif type_value:
+                schema_types.append(str(type_value))
+
+            graph = value.get("@graph")
+            if isinstance(graph, list):
+                for node in graph:
+                    collect_types(node)
+
+        elif isinstance(value, list):
+            for node in value:
+                collect_types(node)
+
+    for index, script in enumerate(jsonld_scripts, start=1):
+        raw_jsonld = script.string or script.get_text()
+        if not raw_jsonld.strip():
+            schema_errors.append(f"JSON-LD #{index}: empty")
+            continue
+
+        try:
+            parsed_jsonld = json.loads(raw_jsonld)
+            collect_types(parsed_jsonld)
+        except Exception as exc:
+            schema_errors.append(
+                f"JSON-LD #{index}: invalid JSON ({exc.__class__.__name__})"
+            )
+
+    microdata_items = soup.find_all(attrs={"itemscope": True})
+    microdata_types = []
+    for item in microdata_items:
+        itemtype = item.get("itemtype", "")
+        if itemtype:
+            microdata_types.append(str(itemtype))
+
     return {
         "ok": True,
         "status": status,
@@ -146,4 +193,9 @@ def inspect_page(url: str):
         "images_total": len(images),
         "images_missing_alt": len(missing_alt),
         "viewport": viewport,
+        "schema_jsonld_count": len(jsonld_scripts),
+        "schema_types": sorted(set(schema_types)),
+        "schema_errors": schema_errors,
+        "microdata_count": len(microdata_items),
+        "microdata_types": sorted(set(microdata_types)),
     }
