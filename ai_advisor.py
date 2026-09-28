@@ -7,6 +7,31 @@ from google.genai import types
 DEFAULT_MODEL = "gemini-flash-latest"
 FALLBACK_MODEL = "gemini-3.1-flash-lite"
 
+def build_fallback_summary(checks):
+    checks = checks or []
+    ng_rows = [row for row in checks if row.get("Status") == "NG"]
+    warn_rows = [row for row in checks if row.get("Status") == "△"]
+
+    if ng_rows:
+        items = "、".join(str(row.get("Item") or "") for row in ng_rows[:2] if row.get("Item"))
+        detail = f" 主な要修正項目は{items}です。" if items else ""
+        return (
+            f"重大なTechnical SEOエラーが{len(ng_rows)}件検出されました。"
+            f"{detail} 公開意図と設定内容を確認し、優先して修正してください。"
+        ).strip()
+
+    if warn_rows:
+        items = "、".join(str(row.get("Item") or "") for row in warn_rows[:2] if row.get("Item"))
+        detail = f" 要確認項目は{items}などです。" if items else ""
+        return (
+            "重大なTechnical SEOエラーは検出されませんでした。"
+            f"要確認（△）が{len(warn_rows)}件あります。{detail}"
+            " 公開意図と設定内容が一致しているか確認してください。"
+        ).strip()
+
+    return "重大なTechnical SEOエラーは検出されませんでした。全チェック項目で大きな問題は確認されませんでした。"
+
+
 
 def _call_gemini(client, model, system_prompt, user_prompt):
     return client.models.generate_content(
@@ -176,7 +201,7 @@ Lighthouse metrics:
 """
 
     last_error = None
-    primary_attempts = (0, 2)
+    primary_attempts = (0, 2, 6)
 
     for delay in primary_attempts:
         if delay:
@@ -200,22 +225,27 @@ Lighthouse metrics:
             if not _is_retryable_error(exc):
                 break
 
-    try:
-        response = _call_gemini(
-            client,
-            FALLBACK_MODEL,
-            system_prompt,
-            user_prompt,
-        )
-        summary, proofreading = _parse_response(response.text)
-        return {
-            "text": summary,
-            "proofreading": proofreading,
-            "model": FALLBACK_MODEL,
-            "fallback_used": True,
-        }
-    except Exception as exc:
-        last_error = exc
+    for delay in (0, 3):
+        if delay:
+            time.sleep(delay)
+        try:
+            response = _call_gemini(
+                client,
+                FALLBACK_MODEL,
+                system_prompt,
+                user_prompt,
+            )
+            summary, proofreading = _parse_response(response.text)
+            return {
+                "text": summary,
+                "proofreading": proofreading,
+                "model": FALLBACK_MODEL,
+                "fallback_used": True,
+            }
+        except Exception as exc:
+            last_error = exc
+            if not _is_retryable_error(exc):
+                break
 
     raise RuntimeError(
         f"Gemini APIから結果を取得できませんでした: {last_error}"
