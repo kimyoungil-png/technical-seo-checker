@@ -20,8 +20,8 @@ st.caption("Ascent SEO Team")
 # deploy-refresh-20260928
 
 st.write(
-    "新規公開・更新した1ページを対象に、Technical SEOを23項目でチェックし、"
-    "そのまま共有できる1枚レポートを作成します。"
+    "新規公開・更新した1ページを対象に、Technical SEOを20項目でチェックし、"
+    "LighthouseをONにした場合のみPerformance 3項目を追加します。"
 )
 
 url = st.text_input(
@@ -153,7 +153,8 @@ if st.button("Technical SEOチェック開始", type="primary"):
             f"NGが{c['NG']}件あります。公開・更新後の優先修正対象として確認してください。"
         )
 
-    st.subheader("23項目チェック")
+    check_count = 23 if run_lighthouse else 20
+    st.subheader(f"{check_count}項目チェック")
     st.markdown(
         html_table(checks),
         unsafe_allow_html=True,
@@ -193,7 +194,7 @@ if st.button("Technical SEOチェック開始", type="primary"):
                 except Exception as e:
                     st.warning(
                         "Geminiレビューを取得できませんでした。"
-                        "23項目チェック結果はそのまま利用できます。"
+                        f"{check_count}項目チェック結果はそのまま利用できます。"
                     )
                     with st.expander("エラー詳細"):
                         st.code(str(e))
