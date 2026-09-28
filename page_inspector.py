@@ -159,8 +159,7 @@ def inspect_page(url: str):
         if not img.has_attr("alt")
     ]
 
-    missing_alt_examples = []
-    for img in missing_alt[:5]:
+    def image_src(img):
         src = (
             img.get("src")
             or img.get("data-src")
@@ -170,10 +169,71 @@ def inspect_page(url: str):
         )
         if src:
             src = str(src).split(",")[0].strip().split(" ")[0]
-            src = urljoin(final_url, src)
+            return urljoin(final_url, src)
+        return ""
 
+    def has_accessible_parent_label(img):
+        parent = img.find_parent(["a", "button"])
+        if not parent:
+            return False
+
+        aria_label = (parent.get("aria-label") or "").strip()
+        title_value = (parent.get("title") or "").strip()
+        visible_text = parent.get_text(" ", strip=True)
+
+        return bool(aria_label or title_value or visible_text)
+
+    def is_decorative_or_ui_candidate(img):
+        if str(img.get("aria-hidden", "")).lower() == "true":
+            return True
+
+        if str(img.get("role", "")).lower() in ("presentation", "none"):
+            return True
+
+        if has_accessible_parent_label(img):
+            return True
+
+        ancestor = img.find_parent(["nav", "header", "footer"])
+        if ancestor is not None:
+            return True
+
+        src = image_src(img).lower()
+        classes = " ".join(img.get("class", [])).lower()
+
+        ui_tokens = (
+            "/gnb/",
+            "/nav/",
+            "/navigation/",
+            "icon",
+            "logo",
+            "sprite",
+            "arrow",
+            "chevron",
+            "lazyload",
+        )
+
+        return any(token in src or token in classes for token in ui_tokens)
+
+    missing_alt_priority = []
+    missing_alt_ui = []
+
+    for img in missing_alt:
+        if is_decorative_or_ui_candidate(img):
+            missing_alt_ui.append(img)
+        else:
+            missing_alt_priority.append(img)
+
+    missing_alt_examples = []
+    for img in missing_alt_priority[:5]:
         missing_alt_examples.append({
-            "src": src or "src取得できず",
+            "src": image_src(img) or "src取得できず",
+            "class": " ".join(img.get("class", [])),
+        })
+
+    missing_alt_ui_examples = []
+    for img in missing_alt_ui[:5]:
+        missing_alt_ui_examples.append({
+            "src": image_src(img) or "src取得できず",
             "class": " ".join(img.get("class", [])),
         })
 
@@ -483,7 +543,10 @@ def inspect_page(url: str):
         "heading_issues": heading_issues,
         "images_total": len(images),
         "images_missing_alt": len(missing_alt),
+        "images_missing_alt_priority": len(missing_alt_priority),
+        "images_missing_alt_ui": len(missing_alt_ui),
         "images_missing_alt_examples": missing_alt_examples,
+        "images_missing_alt_ui_examples": missing_alt_ui_examples,
         "viewport": viewport,
         "charset": charset,
         "content_type": content_type,
