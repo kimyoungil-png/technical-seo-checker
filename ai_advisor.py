@@ -1,9 +1,35 @@
 import json
+import time
 from google import genai
 from google.genai import types
 
 
 DEFAULT_MODEL = "gemini-3.8-flash"
+FALLBACK_MODEL = "gemini-3.5-flash-lite"
+
+
+def _call_gemini(client, model, system_prompt, user_prompt):
+    return client.models.generate_content(
+        model=model,
+        contents=user_prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            temperature=0.2,
+            max_output_tokens=2200,
+        ),
+    )
+
+
+def _is_retryable_error(exc):
+    text = str(exc).upper()
+    return (
+        "503" in text
+        or "UNAVAILABLE" in text
+        or "429" in text
+        or "RESOURCE_EXHAUSTED" in text
+        or "DEADLINE_EXCEEDED" in text
+        or "TIMEOUT" in text
+    )
 
 
 def generate_ai_advice(
@@ -64,14 +90,56 @@ SiteOne Crawler result:
 {siteone_excerpt}
 """
 
-    response = client.models.generate_content(
-        model=model,
-        contents=user_prompt,
-        config=types.GenerateContentConfig(
-            system_instruction=system_prompt,
-            temperature=0.2,
-            max_output_tokens=2200,
-        ),
-    )
+    # Primary model: short exponential backoff.
+    delays = [0, 2, 5]
 
-    return response.text or ""
+    last_error = None
+
+    for delay in delays:
+        if delay:
+            time.sleep(delay)
+
+        try:
+            response = _call_gemini(
+                client,
+                model,
+                system_prompt,
+                user_prompt,
+            )
+            return {
+                "text": response.text or "",
+                "model": model,
+                "fallback_used": False,
+            }
+        except Exception as exc:
+            last_error = exc
+            if not _is_retryable_error(exc):
+                raise
+
+    # If the primary model is overloaded, switch to a lighter stable model.
+    fallback_delays = [0, 3]
+
+    for delay in fallback_delays:
+        if delay:
+            time.sleep(delay)
+
+        try:
+            response = _call_gemini(
+                client,
+                FALLBACK_MODEL,
+                system_prompt,
+                user_prompt,
+            )
+            return {
+                "text": response.text or "",
+                "model": FALLBACK_MODEL,
+                "fallback_used": True,
+            }
+        except Exception as exc:
+            last_error = exc
+            if not _is_retryable_error(exc):
+                raise
+
+    raise RuntimeError(
+        "Gemini APIが混雑しており、再試行とフォールバックモデルでも応答を取得できませんでした。"
+    ) from last_error
