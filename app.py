@@ -122,6 +122,7 @@ def run_audit(target_url, use_lighthouse, use_ai):
     check_count = 23 if use_lighthouse else 20
     ai_text = ""
     ai_model = ""
+    ai_error = ""
 
     if use_ai:
         api_key = get_secret("GEMINI_API_KEY")
@@ -146,12 +147,11 @@ def run_audit(target_url, use_lighthouse, use_ai):
                     ai_text = advice_result.get("text", "")
                     ai_model = advice_result.get("model", model)
                 except Exception as e:
+                    ai_error = str(e)
                     st.warning(
                         "Geminiまとめを取得できませんでした。"
                         f"{check_count}項目チェック結果はそのまま利用できます。"
                     )
-                    with st.expander("エラー詳細"):
-                        st.code(str(e))
 
     return {
         "url": target_url,
@@ -162,6 +162,7 @@ def run_audit(target_url, use_lighthouse, use_ai):
         "check_count": check_count,
         "ai_text": ai_text,
         "ai_model": ai_model,
+        "ai_error": ai_error,
         "metrics": metrics,
         "page_data": page_data,
         "siteone_text": siteone_text,
@@ -301,6 +302,9 @@ def render_audit_result(audit, index):
                 st.caption(f"Gemini model: {audit['ai_model']}")
         else:
             st.caption("まとめは取得できませんでした。")
+            if audit.get("ai_error"):
+                with st.expander("Geminiエラー詳細", expanded=False):
+                    st.code(audit["ai_error"])
 
     with st.expander("Excel貼り付け用", expanded=False):
         st.write(
