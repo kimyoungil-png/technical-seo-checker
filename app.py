@@ -6,7 +6,7 @@ from page_inspector import inspect_page
 from report_builder import build_checks, build_copy_report, counts, html_table, tsv_table
 from siteone_runner import run_siteone
 from unlighthouse_runner import run_unlighthouse
-from ppt_report import build_ppt_report
+from ppt_report import build_ppt_report, build_ppt_report_from_template
 
 
 st.set_page_config(
@@ -253,7 +253,17 @@ if audit:
 
     st.subheader("PowerPoint出力")
     st.write(
-        "モバイルのファーストビュー画像とチェック結果を1枚のPPTにまとめます。"
+        "テンプレートPPTを使う場合は、下にテンプレートをアップロードしてください。"
+        "未指定の場合は簡易レイアウトで生成します。"
+    )
+
+    ppt_template = st.file_uploader(
+        "PowerPointテンプレート（任意）",
+        type=["pptx"],
+        help=(
+            "Technical SEO Checker sample1.pptxを指定すると、"
+            "そのファイルのデザインを保ったまま必要箇所だけ差し替えます。"
+        ),
     )
 
     if st.button("PPTを生成", key="generate_ppt_report"):
@@ -262,11 +272,19 @@ if audit:
 
         with st.spinner("モバイル画面を取得してPowerPointを生成中..."):
             try:
-                ppt_result = build_ppt_report(
-                    url=checked_url,
-                    checks=checks,
-                    summary=ai_text,
-                )
+                if ppt_template is not None:
+                    ppt_result = build_ppt_report_from_template(
+                        url=checked_url,
+                        checks=checks,
+                        summary=ai_text,
+                        template_bytes=ppt_template.getvalue(),
+                    )
+                else:
+                    ppt_result = build_ppt_report(
+                        url=checked_url,
+                        checks=checks,
+                        summary=ai_text,
+                    )
 
                 st.session_state["ppt_report"] = ppt_result
                 st.success(
@@ -322,11 +340,6 @@ if audit:
         data=copy_report,
         file_name="technical-seo-report.md",
         mime="text/markdown",
-    )
-
-    st.caption(
-        "PowerPointへ表として入れる場合は、Excelに貼り付けて表として整えた後、"
-        "Excelの表をPowerPointへコピーする方法が最も確実です。"
     )
 
     with st.expander("詳細データを見る", expanded=False):
