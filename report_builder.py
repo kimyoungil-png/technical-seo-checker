@@ -122,7 +122,11 @@ def _row(
         "Action": (
             "対応不要"
             if status == "OK"
-            else action
+            else (
+                "測定データを取得できていないため、再実行して確認してください。"
+                if status == "—"
+                else action
+            )
         ),
     }
 
@@ -474,7 +478,10 @@ def build_checks(
     schema_types = page_data.get("schema_types", [])
     total_schema = schema_jsonld_count + schema_microdata_count
 
-    if schema_errors:
+    if schema_errors and total_schema > 0:
+        schema_status = "△"
+        schema_result = " / ".join(schema_errors[:2])
+    elif schema_errors:
         schema_status = "NG"
         schema_result = " / ".join(schema_errors[:2])
     elif total_schema > 0:
@@ -524,12 +531,16 @@ def build_checks(
 
     seo_score = metrics.get("seo")
     seo_status = (
-        "OK"
-        if isinstance(seo_score, (int, float)) and seo_score >= 90
+        "—"
+        if seo_score is None
         else (
-            "△"
-            if isinstance(seo_score, (int, float)) and seo_score >= 80
-            else "NG"
+            "OK"
+            if isinstance(seo_score, (int, float)) and seo_score >= 90
+            else (
+                "△"
+                if isinstance(seo_score, (int, float)) and seo_score >= 80
+                else "NG"
+            )
         )
     )
     checks.append(
@@ -546,12 +557,16 @@ def build_checks(
 
     perf = metrics.get("performance")
     perf_status = (
-        "OK"
-        if isinstance(perf, (int, float)) and perf >= 90
+        "—"
+        if perf is None
         else (
-            "△"
-            if isinstance(perf, (int, float)) and perf >= 50
-            else "NG"
+            "OK"
+            if isinstance(perf, (int, float)) and perf >= 90
+            else (
+                "△"
+                if isinstance(perf, (int, float)) and perf >= 50
+                else "NG"
+            )
         )
     )
     checks.append(
@@ -578,7 +593,7 @@ def build_checks(
             )
         )
     else:
-        lcp_status = "△"
+        lcp_status = "—"
 
     checks.append(
         _row(
@@ -604,7 +619,7 @@ def build_checks(
             )
         )
     else:
-        cls_status = "△"
+        cls_status = "—"
 
     checks.append(
         _row(
@@ -630,7 +645,7 @@ def build_checks(
             )
         )
     else:
-        tbt_status = "△"
+        tbt_status = "—"
 
     checks.append(
         _row(
@@ -652,6 +667,7 @@ def counts(checks):
         "OK": sum(1 for row in checks if row["Status"] == "OK"),
         "△": sum(1 for row in checks if row["Status"] == "△"),
         "NG": sum(1 for row in checks if row["Status"] == "NG"),
+        "—": sum(1 for row in checks if row["Status"] == "—"),
     }
 
 
