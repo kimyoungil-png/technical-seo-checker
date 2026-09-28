@@ -14,7 +14,7 @@ def _call_gemini(client, model, system_prompt, user_prompt):
         contents=user_prompt,
         config=types.GenerateContentConfig(
             system_instruction=system_prompt,
-            max_output_tokens=500,
+            max_output_tokens=300,
         ),
     )
 
@@ -36,7 +36,6 @@ def _is_retryable_error(exc):
 
 def generate_ai_advice(
     url: str,
-    siteone_text: str,
     metrics: dict,
     api_key: str,
     model: str = DEFAULT_MODEL,
@@ -44,18 +43,37 @@ def generate_ai_advice(
 ):
     client = genai.Client(api_key=api_key)
 
+    checks = checks or []
     issue_rows = [
-        row
-        for row in (checks or [])
+        {
+            "No": row.get("No"),
+            "Item": row.get("Item"),
+            "Status": row.get("Status"),
+            "Result": row.get("Result"),
+            "Action": row.get("Action"),
+        }
+        for row in checks
         if row.get("Status") in ("NG", "△")
     ]
+    status_rows = [
+        {
+            "No": row.get("No"),
+            "Item": row.get("Item"),
+            "Status": row.get("Status"),
+        }
+        for row in checks
+    ]
+    status_counts = {
+        status: sum(1 for row in checks if row.get("Status") == status)
+        for status in ("OK", "△", "NG", "—")
+    }
 
     system_prompt = """
 あなたはTechnical SEOチェック結果の要約担当です。
 
 ルール:
 - 入力されたチェック結果だけを根拠にする。
-- 最初に全20項目の判定結果を踏まえた全体評価を1文で述べる。
+- 最初に全チェック項目の判定結果を踏まえた全体評価を1文で述べる。
 - NGが0件なら、1文目は「重大なTechnical SEOエラーは検出されませんでした。」から始める。
 - NGがある場合は、1文目でNG件数と重大な問題があることを簡潔に述べる。
 - その後、NG・△の中から重要な内容だけを拾って具体的に説明する。
@@ -70,21 +88,24 @@ def generate_ai_advice(
 対象URL:
 {url}
 
-全チェック結果:
-{json.dumps(checks or [], ensure_ascii=False, indent=2)}
+判定件数:
+{json.dumps(status_counts, ensure_ascii=False)}
 
-NG・△項目:
-{json.dumps(issue_rows, ensure_ascii=False, indent=2)}
+全項目の判定:
+{json.dumps(status_rows, ensure_ascii=False)}
+
+NG・△項目の詳細:
+{json.dumps(issue_rows, ensure_ascii=False)}
 
 Lighthouse metrics:
-{json.dumps(metrics or {}, ensure_ascii=False, indent=2)}
+{json.dumps(metrics or {}, ensure_ascii=False)}
 """
 
     last_error = None
 
     # First try the configured/default model. A stale GEMINI_MODEL value
     # should not break the report, so any model-level failure falls back.
-    primary_attempts = (0, 2, 5) if model == DEFAULT_MODEL else (0, 2)
+    primary_attempts = (0, 2)
 
     for delay in primary_attempts:
         if delay:
@@ -110,7 +131,7 @@ Lighthouse metrics:
                 break
 
     # Stable low-cost fallback for short summaries.
-    for delay in (0, 3):
+    for delay in (0,):
         if delay:
             time.sleep(delay)
         try:
