@@ -12,11 +12,30 @@ FALLBACK_MODELS = (
     "gemini-3.1-flash-lite",
 )
 
+# These items remain visible in the full SEO table, but they are intentionally
+# omitted from the short executive summary unless they are actual NG items.
+SUMMARY_MINOR_ITEMS = {
+    "Image Alt",
+    "HTML Validity",
+    "Heading Structure",
+    "Lang Attribute",
+    "Viewport",
+    "Open Graph",
+    "Twitter Card",
+}
+
 
 def build_fallback_summary(checks):
     checks = checks or []
     ng_rows = [row for row in checks if row.get("Status") == "NG"]
-    warn_rows = [row for row in checks if row.get("Status") == "△"]
+    warn_rows = [
+        row
+        for row in checks
+        if (
+            row.get("Status") == "△"
+            and row.get("Item") not in SUMMARY_MINOR_ITEMS
+        )
+    ]
 
     if ng_rows:
         items = "、".join(
@@ -36,17 +55,13 @@ def build_fallback_summary(checks):
             for row in warn_rows[:2]
             if row.get("Item")
         )
-        detail = f" 要確認項目は{items}などです。" if items else ""
+        detail = f" 要確認項目は{items}です。" if items else ""
         return (
             "重大なTechnical SEOエラーは検出されませんでした。"
-            f"要確認（△）が{len(warn_rows)}件あります。{detail}"
-            " 公開意図と設定内容が一致しているか確認してください。"
+            f"{detail}"
         ).strip()
 
-    return (
-        "重大なTechnical SEOエラーは検出されませんでした。"
-        "全チェック項目で大きな問題は確認されませんでした。"
-    )
+    return "重大なTechnical SEOエラーは検出されませんでした。"
 
 
 def _call_gemini(
@@ -167,7 +182,13 @@ def generate_ai_advice(
             "Action": row.get("Action"),
         }
         for row in checks
-        if row.get("Status") in ("NG", "△")
+        if (
+            row.get("Status") == "NG"
+            or (
+                row.get("Status") == "△"
+                and row.get("Item") not in SUMMARY_MINOR_ITEMS
+            )
+        )
     ]
     status_rows = [
         {
@@ -192,10 +213,12 @@ Technical SEOまとめのルール:
 - 最初に全チェック項目の判定結果を踏まえた全体評価を1文で述べる。
 - NGが0件なら、1文目は「重大なTechnical SEOエラーは検出されませんでした。」から始める。
 - NGがある場合は、1文目でNG件数と重大な問題があることを簡潔に述べる。
-- その後、NG・△の中から重要な内容だけを拾って具体的に説明する。
+- その後、NGと、検索流入・クロール・インデックス・正規URLに直接影響する重要な△だけを必要に応じて説明する。
+- Image Altの未設定、HTML Validityのduplicate id、Heading Structure、Lang Attribute、Viewport、Open Graph、Twitter Cardなどの軽微な△はまとめでは触れない。
+- 軽微な△しかない場合は、1文目の全体評価だけで終えてよい。
 - OK項目の細かな説明は不要。
 - 推測で問題を追加しない。
-- 日本語で2〜3文程度にまとめる。
+- 日本語で1〜2文程度に簡潔にまとめる。
 """
         )
 
