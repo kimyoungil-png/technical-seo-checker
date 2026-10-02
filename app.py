@@ -454,7 +454,7 @@ def render_audit_result(audit, index):
                 "明確な誤字脱字は検出されませんでした。"
             )
 
-        if checked_chars:
+        if checked_chars and not audit.get("ai_error"):
             if total_chars > checked_chars:
                 st.caption(
                     f"本文 {total_chars:,}文字のうち"
