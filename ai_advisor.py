@@ -1,5 +1,6 @@
 import json
 import time
+
 from google import genai
 from google.genai import types
 
@@ -7,13 +8,18 @@ from google.genai import types
 DEFAULT_MODEL = "gemini-flash-latest"
 FALLBACK_MODEL = "gemini-3.1-flash-lite"
 
+
 def build_fallback_summary(checks):
     checks = checks or []
     ng_rows = [row for row in checks if row.get("Status") == "NG"]
     warn_rows = [row for row in checks if row.get("Status") == "△"]
 
     if ng_rows:
-        items = "、".join(str(row.get("Item") or "") for row in ng_rows[:2] if row.get("Item"))
+        items = "、".join(
+            str(row.get("Item") or "")
+            for row in ng_rows[:2]
+            if row.get("Item")
+        )
         detail = f" 主な要修正項目は{items}です。" if items else ""
         return (
             f"重大なTechnical SEOエラーが{len(ng_rows)}件検出されました。"
@@ -21,7 +27,11 @@ def build_fallback_summary(checks):
         ).strip()
 
     if warn_rows:
-        items = "、".join(str(row.get("Item") or "") for row in warn_rows[:2] if row.get("Item"))
+        items = "、".join(
+            str(row.get("Item") or "")
+            for row in warn_rows[:2]
+            if row.get("Item")
+        )
         detail = f" 要確認項目は{items}などです。" if items else ""
         return (
             "重大なTechnical SEOエラーは検出されませんでした。"
@@ -29,17 +39,25 @@ def build_fallback_summary(checks):
             " 公開意図と設定内容が一致しているか確認してください。"
         ).strip()
 
-    return "重大なTechnical SEOエラーは検出されませんでした。全チェック項目で大きな問題は確認されませんでした。"
+    return (
+        "重大なTechnical SEOエラーは検出されませんでした。"
+        "全チェック項目で大きな問題は確認されませんでした。"
+    )
 
 
-
-def _call_gemini(client, model, system_prompt, user_prompt):
+def _call_gemini(
+    client,
+    model,
+    system_prompt,
+    user_prompt,
+    max_output_tokens=700,
+):
     return client.models.generate_content(
         model=model,
         contents=user_prompt,
         config=types.GenerateContentConfig(
             system_instruction=system_prompt,
-            max_output_tokens=700,
+            max_output_tokens=max_output_tokens,
             temperature=0.1,
             response_mime_type="application/json",
         ),
@@ -61,7 +79,12 @@ def _is_retryable_error(exc):
     )
 
 
-def _parse_response(raw_text):
+def _parse_response(
+    raw_text,
+    *,
+    require_summary,
+    include_proofreading,
+):
     text = (raw_text or "").strip()
     if not text:
         raise RuntimeError("Gemini returned an empty response")
@@ -80,31 +103,32 @@ def _parse_response(raw_text):
         raise RuntimeError("Gemini returned invalid JSON") from exc
 
     summary = str(data.get("summary") or "").strip()
-    if not summary:
+    if require_summary and not summary:
         raise RuntimeError("Gemini summary was empty")
 
     proofreading = []
-    for item in data.get("proofreading") or []:
-        if not isinstance(item, dict):
-            continue
+    if include_proofreading:
+        for item in data.get("proofreading") or []:
+            if not isinstance(item, dict):
+                continue
 
-        original = str(item.get("original") or "").strip()
-        suggestion = str(item.get("suggestion") or "").strip()
-        reason = str(item.get("reason") or "").strip()
+            original = str(item.get("original") or "").strip()
+            suggestion = str(item.get("suggestion") or "").strip()
+            reason = str(item.get("reason") or "").strip()
 
-        if not original or not suggestion:
-            continue
+            if not original or not suggestion:
+                continue
 
-        proofreading.append(
-            {
-                "original": original,
-                "suggestion": suggestion,
-                "reason": reason,
-            }
-        )
+            proofreading.append(
+                {
+                    "original": original,
+                    "suggestion": suggestion,
+                    "reason": reason,
+                }
+            )
 
-        if len(proofreading) >= 8:
-            break
+            if len(proofreading) >= 8:
+                break
 
     return summary, proofreading
 
@@ -116,7 +140,17 @@ def generate_ai_advice(
     model: str = DEFAULT_MODEL,
     checks=None,
     body_text: str = "",
+    include_summary: bool = True,
+    include_proofreading: bool = True,
 ):
+    if not include_summary and not include_proofreading:
+        return {
+            "text": "",
+            "proofreading": [],
+            "model": model,
+            "fallback_used": False,
+        }
+
     client = genai.Client(api_key=api_key)
 
     checks = checks or []
@@ -144,21 +178,11 @@ def generate_ai_advice(
         for status in ("OK", "△", "NG", "—")
     }
 
-    system_prompt = """
-あなたはTechnical SEOチェック結果の要約と、日本語本文の誤字脱字確認を担当します。
+    task_rules = []
 
-必ず次のJSONオブジェクトだけを返してください。
-{
-  "summary": "Technical SEOのまとめ",
-  "proofreading": [
-    {
-      "original": "誤りを含む短い原文",
-      "suggestion": "修正案",
-      "reason": "誤字・脱字の理由"
-    }
-  ]
-}
-
+    if include_summary:
+        task_rules.append(
+            """
 Technical SEOまとめのルール:
 - 入力されたチェック結果だけを根拠にする。
 - 最初に全チェック項目の判定結果を踏まえた全体評価を1文で述べる。
@@ -168,7 +192,12 @@ Technical SEOまとめのルール:
 - OK項目の細かな説明は不要。
 - 推測で問題を追加しない。
 - 日本語で2〜3文程度にまとめる。
+"""
+        )
 
+    if include_proofreading:
+        task_rules.append(
+            """
 本文の誤字脱字チェックのルール:
 - SEO判定とは完全に分離する。
 - 入力された本文テキストだけを確認する。
@@ -179,26 +208,65 @@ Technical SEOまとめのルール:
 - 指摘は最大8件。
 - 問題がなければ proofreading は空配列にする。
 """
+        )
 
-    user_prompt = f"""
-対象URL:
-{url}
+    summary_schema = (
+        '"summary": "Technical SEOのまとめ"'
+        if include_summary
+        else '"summary": ""'
+    )
+    proofreading_schema = (
+        """
+"proofreading": [
+  {
+    "original": "誤りを含む短い原文",
+    "suggestion": "修正案",
+    "reason": "誤字・脱字の理由"
+  }
+]"""
+        if include_proofreading
+        else '"proofreading": []'
+    )
 
-判定件数:
-{json.dumps(status_counts, ensure_ascii=False)}
+    system_prompt = f"""
+あなたはTechnical SEOチェック結果の要約と、日本語本文の誤字脱字確認を担当します。
+指定された処理だけを実行してください。
 
-全項目の判定:
-{json.dumps(status_rows, ensure_ascii=False)}
+必ず次のJSONオブジェクトだけを返してください。
+{{
+  {summary_schema},
+  {proofreading_schema}
+}}
 
-NG・△項目の詳細:
-{json.dumps(issue_rows, ensure_ascii=False)}
-
-Lighthouse metrics:
-{json.dumps(metrics or {}, ensure_ascii=False)}
-
-本文テキスト:
-{body_text or "本文テキストを取得できず"}
+{"".join(task_rules)}
 """
+
+    prompt_sections = [
+        f"対象URL:\n{url}",
+    ]
+
+    if include_summary:
+        prompt_sections.extend(
+            [
+                "判定件数:\n"
+                + json.dumps(status_counts, ensure_ascii=False),
+                "全項目の判定:\n"
+                + json.dumps(status_rows, ensure_ascii=False),
+                "NG・△項目の詳細:\n"
+                + json.dumps(issue_rows, ensure_ascii=False),
+                "Lighthouse metrics:\n"
+                + json.dumps(metrics or {}, ensure_ascii=False),
+            ]
+        )
+
+    if include_proofreading:
+        prompt_sections.append(
+            "本文テキスト:\n"
+            + (body_text or "本文テキストを取得できず")
+        )
+
+    user_prompt = "\n\n".join(prompt_sections)
+    max_output_tokens = 700 if include_proofreading else 350
 
     last_error = None
     primary_attempts = (0, 2, 6)
@@ -212,8 +280,13 @@ Lighthouse metrics:
                 model,
                 system_prompt,
                 user_prompt,
+                max_output_tokens=max_output_tokens,
             )
-            summary, proofreading = _parse_response(response.text)
+            summary, proofreading = _parse_response(
+                response.text,
+                require_summary=include_summary,
+                include_proofreading=include_proofreading,
+            )
             return {
                 "text": summary,
                 "proofreading": proofreading,
@@ -234,8 +307,13 @@ Lighthouse metrics:
                 FALLBACK_MODEL,
                 system_prompt,
                 user_prompt,
+                max_output_tokens=max_output_tokens,
             )
-            summary, proofreading = _parse_response(response.text)
+            summary, proofreading = _parse_response(
+                response.text,
+                require_summary=include_summary,
+                include_proofreading=include_proofreading,
+            )
             return {
                 "text": summary,
                 "proofreading": proofreading,
