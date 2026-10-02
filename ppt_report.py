@@ -4,6 +4,7 @@ from copy import deepcopy
 import json
 import os
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime
@@ -46,20 +47,41 @@ def _post_json(api_url: str, payload: dict, timeout: int = 120):
 
 
 def _get_mobile_screenshot(url: str) -> bytes:
-    data = _post_json(
-        CLOUD_RUN_SCREENSHOT_API,
-        {"url": url},
-        timeout=90,
-    )
+    last_error = None
 
-    if not data.get("success"):
-        raise RuntimeError(data.get("error") or "Screenshot failed")
+    # Cloud Run and the target page can fail transiently. Retry the complete
+    # screenshot request instead of silently leaving the PPT phone area blank.
+    for delay_seconds in (0, 2, 5):
+        if delay_seconds:
+            time.sleep(delay_seconds)
 
-    encoded = data.get("imageBase64")
-    if not encoded:
-        raise RuntimeError("Screenshot data was not returned")
+        try:
+            data = _post_json(
+                CLOUD_RUN_SCREENSHOT_API,
+                {"url": url},
+                timeout=120,
+            )
 
-    return base64.b64decode(encoded)
+            if not data.get("success"):
+                raise RuntimeError(data.get("error") or "Screenshot failed")
+
+            encoded = data.get("imageBase64")
+            if not encoded:
+                raise RuntimeError("Screenshot data was not returned")
+
+            screenshot = base64.b64decode(encoded)
+            if len(screenshot) < 5000:
+                raise RuntimeError(
+                    f"Screenshot data is unexpectedly small ({len(screenshot)} bytes)"
+                )
+
+            return screenshot
+        except Exception as exc:
+            last_error = exc
+
+    raise RuntimeError(
+        f"Screenshot failed after retries: {last_error}"
+    ) from last_error
 
 
 def _load_server_template_bytes() -> bytes:
