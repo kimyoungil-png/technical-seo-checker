@@ -25,7 +25,7 @@ st.write(
     "チェック完了後にPowerPointレポートまで自動生成します。"
 )
 
-MAX_URLS = 10
+MAX_URLS = 30
 SITEONE_DETAIL_CHAR_LIMIT = 50_000
 PAGE_DETAIL_LIST_LIMIT = 100
 BODY_PROOFREAD_CHAR_LIMIT = 8_000
@@ -37,7 +37,7 @@ urls_text = st.text_area(
         "https://www.example.com/page-2/"
     ),
     key="input_urls",
-    height=220,
+    height=420,
 )
 
 entered_urls = [line.strip() for line in urls_text.splitlines() if line.strip()]
@@ -57,14 +57,20 @@ run_lighthouse = st.checkbox(
     key="input_run_lighthouse",
 )
 
-generate_ai = st.checkbox(
-    "Geminiによるまとめ・本文の誤字脱字チェックを追加する",
+generate_ai_summary = st.checkbox(
+    "Geminiによるまとめを追加する",
+    value=True,
+    key="input_generate_ai_summary",
+)
+
+generate_proofreading = st.checkbox(
+    "Geminiによる本文の誤字脱字チェックを追加する",
     value=True,
     help=(
         "誤字脱字チェックはSEO判定には含めません。"
         "表示本文が長い場合は先頭8,000文字までを確認します。"
     ),
-    key="input_generate_ai",
+    key="input_generate_proofreading",
 )
 
 
@@ -78,7 +84,7 @@ def get_secret(name):
     return os.getenv(name)
 
 
-def run_audit(target_url, use_lighthouse, use_ai):
+def run_audit(target_url, use_lighthouse, use_ai_summary, use_proofreading):
     siteone_text = ""
     siteone_data = {}
     metrics = {}
@@ -90,7 +96,7 @@ def run_audit(target_url, use_lighthouse, use_ai):
     with st.spinner(f"1/{total_steps} ページ情報を確認中... {target_url}"):
         page_data = inspect_page(
             target_url,
-            include_body_text=use_ai,
+            include_body_text=use_proofreading,
         )
 
     body_text = str(page_data.pop("body_text", "") or "")
@@ -147,17 +153,28 @@ def run_audit(target_url, use_lighthouse, use_ai):
     ai_fallback_summary = False
     proofreading = []
 
-    if use_ai:
+    if use_ai_summary or use_proofreading:
         api_key = get_secret("GEMINI_API_KEY")
         model = get_secret("GEMINI_MODEL") or DEFAULT_MODEL
 
         if not api_key:
+            ai_error = "GEMINI_API_KEYが設定されていません。"
+            if use_ai_summary:
+                ai_text = build_fallback_summary(checks)
+                ai_fallback_summary = True
             st.warning(
-                "Geminiまとめを利用するには、Streamlit Secretsに"
+                "Gemini機能を利用するには、Streamlit Secretsに"
                 "GEMINI_API_KEYを設定してください。"
             )
         else:
-            with st.spinner(f"まとめ・本文の誤字脱字を確認しています... {target_url}"):
+            if use_ai_summary and use_proofreading:
+                spinner_text = "まとめ・本文の誤字脱字を確認しています"
+            elif use_ai_summary:
+                spinner_text = "まとめを生成しています"
+            else:
+                spinner_text = "本文の誤字脱字を確認しています"
+
+            with st.spinner(f"{spinner_text}... {target_url}"):
                 try:
                     advice_result = generate_ai_advice(
                         url=target_url,
@@ -166,18 +183,39 @@ def run_audit(target_url, use_lighthouse, use_ai):
                         model=model,
                         checks=checks,
                         body_text=body_text_for_ai,
+                        include_summary=use_ai_summary,
+                        include_proofreading=use_proofreading,
                     )
-                    ai_text = advice_result.get("text", "")
-                    proofreading = advice_result.get("proofreading", []) or []
+                    if use_ai_summary:
+                        ai_text = advice_result.get("text", "")
+                    if use_proofreading:
+                        proofreading = (
+                            advice_result.get("proofreading", [])
+                            or []
+                        )
                     ai_model = advice_result.get("model", model)
                 except Exception as e:
                     ai_error = str(e)
-                    ai_text = build_fallback_summary(checks)
-                    ai_fallback_summary = True
-                    st.warning(
-                        "Gemini APIが一時的に利用できないため、"
-                        "チェック結果から自動生成したまとめを表示します。"
-                    )
+                    if use_ai_summary:
+                        ai_text = build_fallback_summary(checks)
+                        ai_fallback_summary = True
+
+                    if use_ai_summary and use_proofreading:
+                        st.warning(
+                            "Gemini APIが一時的に利用できないため、"
+                            "まとめはチェック結果から自動生成し、"
+                            "本文の誤字脱字チェックは未実施です。"
+                        )
+                    elif use_ai_summary:
+                        st.warning(
+                            "Gemini APIが一時的に利用できないため、"
+                            "チェック結果から自動生成したまとめを表示します。"
+                        )
+                    else:
+                        st.warning(
+                            "Gemini APIが一時的に利用できないため、"
+                            "本文の誤字脱字チェックは実施できませんでした。"
+                        )
 
     page_data_for_ui = dict(page_data)
     internal_links = page_data_for_ui.get("internal_links")
@@ -196,7 +234,8 @@ def run_audit(target_url, use_lighthouse, use_ai):
     return {
         "url": target_url,
         "run_lighthouse": use_lighthouse,
-        "generate_ai": use_ai,
+        "generate_ai_summary": use_ai_summary,
+        "generate_proofreading": use_proofreading,
         "checks": checks,
         "counts": counts(checks),
         "check_count": check_count,
@@ -220,6 +259,14 @@ def build_ppt_for_audits(audits):
             "url": audit["url"],
             "checks": audit["checks"],
             "summary": audit.get("ai_text", ""),
+            "summary_enabled": audit.get("generate_ai_summary", False),
+            "proofreading": audit.get("proofreading", []),
+            "proofreading_enabled": audit.get("generate_proofreading", False),
+            "proofreading_error": (
+                audit.get("ai_error", "")
+                if audit.get("generate_proofreading", False)
+                else ""
+            ),
         }
         for audit in audits
     ]
@@ -266,7 +313,8 @@ if st.button("Technical SEOチェック開始", type="primary"):
                 run_audit(
                     target_url=target_url,
                     use_lighthouse=run_lighthouse,
-                    use_ai=generate_ai,
+                    use_ai_summary=generate_ai_summary,
+                    use_proofreading=generate_proofreading,
                 )
             )
         except Exception as e:
@@ -338,12 +386,15 @@ def render_audit_result(audit, index):
     with st.expander(f"{check_count}項目チェック", expanded=False):
         st.markdown(html_table(checks), unsafe_allow_html=True)
 
-    if audit.get("generate_ai"):
+    if audit.get("generate_ai_summary"):
         st.subheader("まとめ")
         if ai_text:
             st.markdown(ai_text)
             if audit.get("ai_fallback_summary"):
-                st.caption("Gemini APIが混雑していたため、チェック結果から自動生成した代替まとめです。")
+                st.caption(
+                    "Gemini APIが利用できなかったため、"
+                    "チェック結果から自動生成した代替まとめです。"
+                )
             elif audit.get("ai_model"):
                 st.caption(f"Gemini model: {audit['ai_model']}")
 
@@ -353,33 +404,66 @@ def render_audit_result(audit, index):
         else:
             st.caption("まとめは取得できませんでした。")
 
+    if audit.get("generate_proofreading"):
         st.subheader("本文の誤字脱字チェック")
-        st.caption("SEO判定には含めません。明確な誤字・脱字・変換ミスだけを確認します。")
+        st.caption(
+            "SEO判定には含めません。"
+            "明確な誤字・脱字・変換ミスだけを確認します。"
+        )
 
-        checked_chars = int(audit.get("body_text_checked_chars") or 0)
-        total_chars = int(audit.get("body_text_char_count") or checked_chars)
+        checked_chars = int(
+            audit.get("body_text_checked_chars")
+            or 0
+        )
+        total_chars = int(
+            audit.get("body_text_char_count")
+            or checked_chars
+        )
         proofreading = audit.get("proofreading") or []
 
         if audit.get("ai_error"):
-            st.caption("Geminiの取得に失敗したため、本文チェックも実施できませんでした。")
+            st.caption(
+                "Geminiの取得に失敗したため、"
+                "本文チェックは実施できませんでした。"
+            )
+            if not audit.get("generate_ai_summary"):
+                with st.expander("Geminiエラー詳細", expanded=False):
+                    st.code(audit["ai_error"])
         elif checked_chars == 0:
-            st.caption("本文テキストを取得できなかったため、誤字脱字チェックは実施していません。")
+            st.caption(
+                "本文テキストを取得できなかったため、"
+                "誤字脱字チェックは実施していません。"
+            )
         elif proofreading:
-            for proof_index, item in enumerate(proofreading, start=1):
-                st.write(f"{proof_index}. 原文: {item.get('original', '')}")
-                st.write(f"   修正案: {item.get('suggestion', '')}")
+            for proof_index, item in enumerate(
+                proofreading,
+                start=1,
+            ):
+                st.write(
+                    f"{proof_index}. 原文: "
+                    f"{item.get('original', '')}"
+                )
+                st.write(
+                    f"   修正案: "
+                    f"{item.get('suggestion', '')}"
+                )
                 if item.get("reason"):
                     st.caption(f"理由: {item['reason']}")
         else:
-            st.success("明確な誤字脱字は検出されませんでした。")
+            st.success(
+                "明確な誤字脱字は検出されませんでした。"
+            )
 
         if checked_chars:
             if total_chars > checked_chars:
                 st.caption(
-                    f"本文 {total_chars:,}文字のうち先頭{checked_chars:,}文字を確認しました。"
+                    f"本文 {total_chars:,}文字のうち"
+                    f"先頭{checked_chars:,}文字を確認しました。"
                 )
             else:
-                st.caption(f"本文 {checked_chars:,}文字を確認しました。")
+                st.caption(
+                    f"本文 {checked_chars:,}文字を確認しました。"
+                )
 
     with st.expander("Excel貼り付け用", expanded=False):
         st.write(
