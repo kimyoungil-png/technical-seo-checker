@@ -15,6 +15,30 @@ st.set_page_config(
     layout="wide",
 )
 
+try:
+    APP_PASSWORD = str(st.secrets.get("APP_PASSWORD") or "4321")
+except Exception:
+    APP_PASSWORD = os.getenv("APP_PASSWORD", "4321")
+
+if not st.session_state.get("authenticated", False):
+    st.title("Technical SEO Checker")
+    with st.form("login_form"):
+        entered_password = st.text_input(
+            "パスワード",
+            type="password",
+            key="login_password",
+        )
+        login_submitted = st.form_submit_button("ログイン")
+
+    if login_submitted:
+        if entered_password == APP_PASSWORD:
+            st.session_state["authenticated"] = True
+            st.rerun()
+        else:
+            st.error("パスワードが違います。")
+
+    st.stop()
+
 st.image("ASCENTSEOLOGO.png", width=360)
 st.title("Technical SEO Checker")
 st.caption("Ascent SEO Team")
