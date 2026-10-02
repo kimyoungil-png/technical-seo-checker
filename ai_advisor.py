@@ -5,8 +5,12 @@ from google import genai
 from google.genai import types
 
 
-DEFAULT_MODEL = "gemini-flash-latest"
-FALLBACK_MODEL = "gemini-3.1-flash-lite"
+DEFAULT_MODEL = "gemini-3.5-flash-lite"
+FALLBACK_MODELS = (
+    "gemini-3.8-flash",
+    "gemini-3.5-flash",
+    "gemini-3.1-flash-lite",
+)
 
 
 def build_fallback_summary(checks):
@@ -268,16 +272,25 @@ Technical SEOまとめのルール:
     user_prompt = "\n\n".join(prompt_sections)
     max_output_tokens = 700 if include_proofreading else 350
 
+    model_candidates = []
+    for candidate in (model, DEFAULT_MODEL, *FALLBACK_MODELS):
+        candidate = str(candidate or "").strip()
+        if candidate and candidate not in model_candidates:
+            model_candidates.append(candidate)
+
     last_error = None
-    primary_attempts = (0, 2, 6)
+    tried_models = []
 
-    for delay in primary_attempts:
-        if delay:
-            time.sleep(delay)
+    # High-demand 503s are usually model-specific. Move to another current
+    # Flash model quickly instead of waiting through repeated retries on the
+    # same overloaded model. This also keeps 30-URL runs from stalling.
+    for index, candidate in enumerate(model_candidates):
+        tried_models.append(candidate)
+
         try:
             response = _call_gemini(
                 client,
-                model,
+                candidate,
                 system_prompt,
                 user_prompt,
                 max_output_tokens=max_output_tokens,
@@ -290,41 +303,46 @@ Technical SEOまとめのルール:
             return {
                 "text": summary,
                 "proofreading": proofreading,
-                "model": model,
-                "fallback_used": False,
+                "model": candidate,
+                "fallback_used": index > 0,
             }
         except Exception as exc:
             last_error = exc
-            if not _is_retryable_error(exc):
-                break
 
-    for delay in (0, 3):
-        if delay:
-            time.sleep(delay)
-        try:
-            response = _call_gemini(
-                client,
-                FALLBACK_MODEL,
-                system_prompt,
-                user_prompt,
-                max_output_tokens=max_output_tokens,
-            )
-            summary, proofreading = _parse_response(
-                response.text,
-                require_summary=include_summary,
-                include_proofreading=include_proofreading,
-            )
-            return {
-                "text": summary,
-                "proofreading": proofreading,
-                "model": FALLBACK_MODEL,
-                "fallback_used": True,
-            }
-        except Exception as exc:
-            last_error = exc
             if not _is_retryable_error(exc):
-                break
+                # Model aliases can be retired or unavailable for a project.
+                # Try the next known model before giving up.
+                continue
+
+    # One short delayed retry on the low-cost default helps with brief
+    # capacity spikes without multiplying latency across every URL.
+    time.sleep(2)
+    retry_model = DEFAULT_MODEL
+    tried_models.append(f"{retry_model} (retry)")
+
+    try:
+        response = _call_gemini(
+            client,
+            retry_model,
+            system_prompt,
+            user_prompt,
+            max_output_tokens=max_output_tokens,
+        )
+        summary, proofreading = _parse_response(
+            response.text,
+            require_summary=include_summary,
+            include_proofreading=include_proofreading,
+        )
+        return {
+            "text": summary,
+            "proofreading": proofreading,
+            "model": retry_model,
+            "fallback_used": True,
+        }
+    except Exception as exc:
+        last_error = exc
 
     raise RuntimeError(
-        f"Gemini APIから結果を取得できませんでした: {last_error}"
+        "Gemini APIから結果を取得できませんでした。"
+        f" 試行モデル: {', '.join(tried_models)} / 最終エラー: {last_error}"
     ) from last_error
