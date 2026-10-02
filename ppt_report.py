@@ -1,6 +1,7 @@
 import base64
 import io
 from copy import deepcopy
+from difflib import SequenceMatcher
 import json
 import os
 import tempfile
@@ -25,6 +26,10 @@ CLOUD_RUN_SCREENSHOT_API = (
 PPT_FONT_FACE = "Meiryo UI"
 DEFAULT_TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "technical_seo_template.pptx"
 
+SCREENSHOT_CACHE_TTL_SECONDS = 15 * 60
+SCREENSHOT_CACHE_MAX_ITEMS = 40
+_SCREENSHOT_CACHE = {}
+
 
 def _post_json(api_url: str, payload: dict, timeout: int = 120):
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -46,12 +51,39 @@ def _post_json(api_url: str, payload: dict, timeout: int = 120):
         ) from e
 
 
+def _prune_screenshot_cache():
+    now = time.time()
+
+    expired = [
+        url
+        for url, item in _SCREENSHOT_CACHE.items()
+        if now - item["created_at"] > SCREENSHOT_CACHE_TTL_SECONDS
+    ]
+    for url in expired:
+        _SCREENSHOT_CACHE.pop(url, None)
+
+    while len(_SCREENSHOT_CACHE) > SCREENSHOT_CACHE_MAX_ITEMS:
+        oldest_url = next(iter(_SCREENSHOT_CACHE))
+        _SCREENSHOT_CACHE.pop(oldest_url, None)
+
+
 def _get_mobile_screenshot(url: str) -> bytes:
+    _prune_screenshot_cache()
+
+    cached = _SCREENSHOT_CACHE.get(url)
+    if cached:
+        # Refresh insertion order so repeated report generation reuses the
+        # most recently requested screenshots without hitting Cloud Run again.
+        _SCREENSHOT_CACHE.pop(url, None)
+        _SCREENSHOT_CACHE[url] = cached
+        return cached["bytes"]
+
     last_error = None
 
-    # Cloud Run and the target page can fail transiently. Retry the complete
-    # screenshot request instead of silently leaving the PPT phone area blank.
-    for delay_seconds in (0, 2, 5):
+    # Cloud Run performs its own browser-level retries. Keep one additional
+    # client retry for transient HTTP/container failures without multiplying
+    # requests excessively for a 30-URL report.
+    for delay_seconds in (0, 3):
         if delay_seconds:
             time.sleep(delay_seconds)
 
@@ -70,11 +102,16 @@ def _get_mobile_screenshot(url: str) -> bytes:
                 raise RuntimeError("Screenshot data was not returned")
 
             screenshot = base64.b64decode(encoded)
-            if len(screenshot) < 5000:
+            if len(screenshot) < 3000:
                 raise RuntimeError(
                     f"Screenshot data is unexpectedly small ({len(screenshot)} bytes)"
                 )
 
+            _SCREENSHOT_CACHE[url] = {
+                "created_at": time.time(),
+                "bytes": screenshot,
+            }
+            _prune_screenshot_cache()
             return screenshot
         except Exception as exc:
             last_error = exc
@@ -128,7 +165,7 @@ def _status_color(status: str):
     return "555555"
 
 
-def _replace_title_and_summary(slide, url: str, summary: str):
+def _replace_title_and_summary(slide, url: str, summary: str, show_summary: bool = True):
     parsed = urlparse(url)
     path = parsed.path or "/"
     date_label = f"{datetime.now().month}/{datetime.now().day}"
@@ -155,13 +192,14 @@ def _replace_title_and_summary(slide, url: str, summary: str):
         r1.font.bold = True
         r1.font.color.rgb = RGBColor.from_string("222222")
 
-        p2 = text_frame.add_paragraph()
-        r2 = p2.add_run()
-        r2.text = summary
-        r2.font.name = PPT_FONT_FACE
-        r2.font.size = Pt(14)
-        r2.font.bold = True
-        r2.font.color.rgb = RGBColor.from_string("0432FF")
+        if show_summary and summary:
+            p2 = text_frame.add_paragraph()
+            r2 = p2.add_run()
+            r2.text = summary
+            r2.font.name = PPT_FONT_FACE
+            r2.font.size = Pt(14)
+            r2.font.bold = True
+            r2.font.color.rgb = RGBColor.from_string("0432FF")
         return
 
 
@@ -211,21 +249,21 @@ def _fill_table(slide, checks):
 
 def _add_screenshot_fixed(slide, screenshot_bytes: bytes):
     # Fixed placement based on the approved Technical SEO report layout.
-    # The current PPT template does not contain an image placeholder, so
-    # the mobile first-view screenshot is always inserted at this position.
     shot_left = Inches(0.55)
     shot_top = Inches(1.50)
     shot_width = Cm(6.5)
     shot_height = Inches(5.64)
 
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as image_file:
+    suffix = ".png" if screenshot_bytes.startswith(b"\x89PNG") else ".jpg"
+
+    with tempfile.NamedTemporaryFile(
+        suffix=suffix,
+        delete=False,
+    ) as image_file:
         image_file.write(screenshot_bytes)
         image_path = image_file.name
 
     try:
-        # add_picture() appends the image at the end of the shape tree, which
-        # makes it frontmost. Do not move it backward: the template contains
-        # large white/background shapes that otherwise cover the screenshot.
         slide.shapes.add_picture(
             image_path,
             shot_left,
@@ -238,6 +276,147 @@ def _add_screenshot_fixed(slide, screenshot_bytes: bytes):
             os.remove(image_path)
         except FileNotFoundError:
             pass
+
+
+def _style_proof_run(
+    run,
+    *,
+    font_size=8,
+    bold=False,
+    color="000000",
+):
+    run.font.name = PPT_FONT_FACE
+    run.font.size = Pt(font_size)
+    run.font.bold = bold
+    run.font.color.rgb = RGBColor.from_string(color)
+
+
+def _add_original_with_diff(paragraph, original: str, suggestion: str):
+    prefix = paragraph.add_run()
+    prefix.text = "原文: "
+    _style_proof_run(prefix)
+
+    matcher = SequenceMatcher(
+        None,
+        original or "",
+        suggestion or "",
+    )
+
+    for tag, i1, i2, _j1, _j2 in matcher.get_opcodes():
+        segment = (original or "")[i1:i2]
+        if not segment:
+            continue
+
+        run = paragraph.add_run()
+        run.text = segment
+        _style_proof_run(
+            run,
+            color="FF0000" if tag != "equal" else "000000",
+        )
+
+
+def _add_proofreading_box(
+    slide,
+    *,
+    enabled: bool,
+    proofreading,
+    error: str = "",
+):
+    if not enabled:
+        return
+
+    # Coordinates and typography follow the user's approved sample.
+    box = slide.shapes.add_textbox(
+        Inches(3.4271325459),
+        Inches(6.2312106299),
+        Inches(9.4095374016),
+        Inches(0.9087893701),
+    )
+    text_frame = box.text_frame
+    text_frame.clear()
+    text_frame.word_wrap = True
+    text_frame.margin_left = Inches(0.10)
+    text_frame.margin_right = Inches(0.10)
+    text_frame.margin_top = Inches(0.05)
+    text_frame.margin_bottom = Inches(0.05)
+
+    note = text_frame.paragraphs[0]
+    note.alignment = PP_ALIGN.LEFT
+
+    run = note.add_run()
+    run.text = "※誤字脱字"
+    _style_proof_run(
+        run,
+        bold=True,
+        color="FF0000",
+    )
+
+    run = note.add_run()
+    run.text = (
+        "：SEO判定には含めません。"
+        "明確な誤字・脱字・変換ミスだけを確認します。"
+    )
+    _style_proof_run(run)
+
+    items = list(proofreading or [])
+
+    if error:
+        paragraph = text_frame.add_paragraph()
+        paragraph.alignment = PP_ALIGN.LEFT
+        run = paragraph.add_run()
+        run.text = (
+            "Geminiの取得に失敗したため、"
+            "本文チェックは実施できませんでした。"
+        )
+        _style_proof_run(run)
+        return
+
+    if not items:
+        paragraph = text_frame.add_paragraph()
+        paragraph.alignment = PP_ALIGN.LEFT
+        run = paragraph.add_run()
+        run.text = "明確な誤字脱字は検出されませんでした。"
+        _style_proof_run(run)
+        return
+
+    max_items = 2
+
+    for index, item in enumerate(items[:max_items], start=1):
+        original = str(item.get("original") or "")
+        suggestion = str(item.get("suggestion") or "")
+
+        original_p = text_frame.add_paragraph()
+        original_p.alignment = PP_ALIGN.LEFT
+
+        number_run = original_p.add_run()
+        number_run.text = f"{index}. "
+        _style_proof_run(number_run)
+
+        _add_original_with_diff(
+            original_p,
+            original,
+            suggestion,
+        )
+
+        suggestion_p = text_frame.add_paragraph()
+        suggestion_p.alignment = PP_ALIGN.LEFT
+        suggestion_run = suggestion_p.add_run()
+        suggestion_run.text = f"   修正案: {suggestion}"
+        _style_proof_run(suggestion_run)
+
+    if len(items) > max_items:
+        more_p = text_frame.add_paragraph()
+        more_p.alignment = PP_ALIGN.LEFT
+        more_run = more_p.add_run()
+        more_run.text = (
+            f"ほか{len(items) - max_items}件は"
+            "画面上の誤字脱字チェック結果を確認してください。"
+        )
+        _style_proof_run(
+            more_run,
+            font_size=7,
+            color="555555",
+        )
 
 
 def _duplicate_template_slide(presentation, source_slide):
@@ -271,9 +450,28 @@ def build_multi_ppt_report_from_template(reports: list[dict], template_bytes: by
         url = str(report.get("url") or "")
         checks = report.get("checks") or []
         summary = str(report.get("summary") or "")
+        summary_enabled = bool(report.get("summary_enabled", True))
+        proofreading = report.get("proofreading") or []
+        proofreading_enabled = bool(
+            report.get("proofreading_enabled", False)
+        )
+        proofreading_error = str(
+            report.get("proofreading_error") or ""
+        )
 
-        _replace_title_and_summary(slide, url, summary)
+        _replace_title_and_summary(
+            slide,
+            url,
+            summary,
+            show_summary=summary_enabled,
+        )
         _fill_table(slide, checks)
+        _add_proofreading_box(
+            slide,
+            enabled=proofreading_enabled,
+            proofreading=proofreading,
+            error=proofreading_error,
+        )
 
         try:
             screenshot = _get_mobile_screenshot(url)
