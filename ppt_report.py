@@ -322,7 +322,11 @@ def _add_proofreading_box(
     proofreading,
     error: str = "",
 ):
-    if not enabled:
+    items = list(proofreading or [])
+
+    # PPTには実際の指摘がある場合だけ誤字脱字欄を表示する。
+    # 問題なし／GeminiエラーはWeb画面だけで表示する。
+    if not enabled or error or not items:
         return
 
     # Coordinates and typography follow the user's approved sample.
@@ -357,27 +361,6 @@ def _add_proofreading_box(
         "明確な誤字・脱字・変換ミスだけを確認します。"
     )
     _style_proof_run(run)
-
-    items = list(proofreading or [])
-
-    if error:
-        paragraph = text_frame.add_paragraph()
-        paragraph.alignment = PP_ALIGN.LEFT
-        run = paragraph.add_run()
-        run.text = (
-            "Geminiの取得に失敗したため、"
-            "本文チェックは実施できませんでした。"
-        )
-        _style_proof_run(run)
-        return
-
-    if not items:
-        paragraph = text_frame.add_paragraph()
-        paragraph.alignment = PP_ALIGN.LEFT
-        run = paragraph.add_run()
-        run.text = "明確な誤字脱字は検出されませんでした。"
-        _style_proof_run(run)
-        return
 
     max_items = 2
 
