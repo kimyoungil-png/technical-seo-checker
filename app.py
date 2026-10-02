@@ -58,7 +58,7 @@ run_lighthouse = st.checkbox(
 )
 
 generate_ai_summary = st.checkbox(
-    "Geminiによるまとめを追加する",
+    "Geminiによるまとめる",
     value=True,
     key="input_generate_ai_summary",
 )
