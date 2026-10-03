@@ -22,6 +22,11 @@ except Exception:
 
 if not st.session_state.get("authenticated", False):
     st.title("Technical SEO Checker")
+
+    login_left, login_center, login_right = st.columns([1, 1.2, 1])
+    with login_center:
+        st.image("assets/login_image.jpg", width=260)
+
     with st.form("login_form"):
         entered_password = st.text_input(
             "パスワード",
